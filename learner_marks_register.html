@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learner Marks &amp; Grades Register — Comprehensive High School Bajja</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root{
+    --navy:#1B2A4A;
+    --green:#1E5631;
+    --gold:#C9A227;
+    --bg:#F3F5F4;
+    --card:#FFFFFF;
+    --line:#E2E6E4;
+    --text:#1A1A1A;
+    --muted:#6B7680;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    font-family:'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    color:var(--text);
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:24px 16px 60px;}
+  header.top{
+    background:var(--navy);
+    border-radius:14px;
+    padding:22px 26px;
+    margin-bottom:20px;
+    box-shadow:0 4px 14px rgba(27,42,74,0.25);
+  }
+  header.top .eyebrow{
+    color:var(--gold);
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    margin-bottom:4px;
+  }
+  header.top h1{
+    color:white;
+    font-size:22px;
+    margin:0;
+    line-height:1.3;
+  }
+  header.top p{
+    color:#C7CEDA;
+    font-size:13px;
+    margin:6px 0 0;
+  }
+  .card{
+    background:var(--card);
+    border-radius:14px;
+    padding:20px 22px;
+    margin-bottom:18px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.06);
+  }
+  .card h2{
+    font-size:13px;
+    font-weight:700;
+    color:var(--navy);
+    text-transform:uppercase;
+    letter-spacing:.5px;
+    margin:0 0 14px;
+  }
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .grid-3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;}
+  @media (max-width:600px){
+    .grid-2, .grid-3{grid-template-columns:1fr;}
+  }
+  label{
+    display:block;
+    font-size:12px;
+    font-weight:600;
+    color:var(--navy);
+    margin-bottom:6px;
+  }
+  input[type=text], input[type=number], select{
+    width:100%;
+    padding:10px 12px;
+    font-size:15px;
+    border-radius:8px;
+    border:1.5px solid #D6DBE0;
+    outline:none;
+    font-family:inherit;
+  }
+  input:focus, select:focus{border-color:var(--green);}
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:10px 18px;
+    border-radius:8px;
+    font-size:13.5px;
+    font-weight:600;
+    border:1.5px solid var(--green);
+    background:var(--green);
+    color:white;
+    cursor:pointer;
+    transition:opacity .15s;
+  }
+  .btn:hover{opacity:.9;}
+  .btn.secondary{
+    background:white;
+    color:var(--navy);
+    border-color:#D6DBE0;
+  }
+  .btn.danger{
+    background:white;
+    color:#B91C1C;
+    border-color:#F3C6C6;
+  }
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th, td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);}
+  th{
+    background:var(--navy);
+    color:white;
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:.4px;
+    font-weight:700;
+  }
+  tr:nth-child(even) td{background:#F7F9F8;}
+  .grade-pill{
+    display:inline-block;
+    padding:3px 10px;
+    border-radius:20px;
+    color:white;
+    font-weight:700;
+    font-size:12px;
+    min-width:30px;
+    text-align:center;
+  }
+  .del-btn{
+    background:none;border:none;color:#B91C1C;cursor:pointer;font-size:12px;font-weight:600;
+  }
+  .empty-state{
+    text-align:center;
+    padding:30px 10px;
+    color:var(--muted);
+    font-size:13.5px;
+  }
+  .summary-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(110px,1fr));
+    gap:10px;
+    margin-top:4px;
+  }
+  .summary-box{
+    background:#F6F8F7;
+    border:1px solid #E7EBE8;
+    border-radius:10px;
+    padding:12px 10px;
+    text-align:center;
+  }
+  .summary-box .val{font-size:19px;font-weight:800;color:var(--green);}
+  .summary-box .lab{font-size:11px;color:var(--muted);margin-top:2px;}
+  .hint{font-size:11.5px;color:#9AA3AB;line-height:1.5;margin-top:10px;}
+  .footer-note{text-align:center;font-size:11px;color:#9AA3AB;margin-top:20px;}
+  #fileInput{display:none;}
+  .err{color:#B91C1C;font-size:12.5px;margin-top:8px;min-height:14px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="eyebrow">Comprehensive High School Bajja — Lukaya</div>
+    <h1>Learner Marks &amp; Grades Register</h1>
+    <p>Record scores, get automatic grades, and download a printable PDF list.</p>
+  </header>
+
+  <!-- Assessment setup -->
+  <div class="card">
+    <h2>Assessment Details</h2>
+    <div class="grid-3">
+      <div>
+        <label for="assessmentTitle">Assessment title</label>
+        <input type="text" id="assessmentTitle" placeholder="e.g. Senior Five History CAT 1" value="Class Assessment">
+      </div>
+      <div>
+        <label for="totalMarks">Out of (total marks)</label>
+        <input type="number" id="totalMarks" min="1" value="20">
+      </div>
+      <div>
+        <label for="gradeScale">Grading scale</label>
+        <select id="gradeScale">
+          <option value="cbc">CBC Descriptor</option>
+          <option value="uce">UCE (D1–F9)</option>
+          <option value="letter">Letter (A–F)</option>
+        </select>
+      </div>
+    </div>
+    <div class="hint">Changing the total or scale instantly recalculates every learner's percentage and grade below.</div>
+  </div>
+
+  <!-- Add learner -->
+  <div class="card">
+    <h2>Add Learner</h2>
+    <div class="grid-3">
+      <div>
+        <label for="learnerName">Learner name</label>
+        <input type="text" id="learnerName" placeholder="e.g. Nakato Sarah">
+      </div>
+      <div>
+        <label for="learnerMarks">Marks obtained</label>
+        <input type="number" id="learnerMarks" min="0" placeholder="e.g. 15">
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn" id="addBtn" style="width:100%;justify-content:center;">Add Learner</button>
+      </div>
+    </div>
+    <div class="err" id="formErr"></div>
+  </div>
+
+  <!-- Summary -->
+  <div class="card" id="summaryCard" style="display:none;">
+    <h2>Class Summary</h2>
+    <div class="summary-grid">
+      <div class="summary-box"><div class="val" id="sumCount">0</div><div class="lab">Learners</div></div>
+      <div class="summary-box"><div class="val" id="sumAvg">0%</div><div class="lab">Average</div></div>
+      <div class="summary-box"><div class="val" id="sumHigh">0%</div><div class="lab">Highest</div></div>
+      <div class="summary-box"><div class="val" id="sumLow">0%</div><div class="lab">Lowest</div></div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <h2>Register</h2>
+    <div id="tableWrap">
+      <div class="empty-state" id="emptyState">No learners added yet. Add the first one above.</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="downloadPdfBtn" disabled>Download PDF</button>
+      <button class="btn secondary" id="exportBtn" disabled>Export data (.json)</button>
+      <button class="btn secondary" id="importBtn">Import data (.json)</button>
+      <button class="btn danger" id="clearBtn" disabled>Clear all</button>
+      <input type="file" id="fileInput" accept="application/json">
+    </div>
+    <div class="hint">
+      Data lives in this browser tab only and is <b>not saved automatically</b>. Use
+      <b>Export data</b> before closing the tab, and <b>Import data</b> next time to continue
+      where you left off.
+    </div>
+  </div>
+
+  <div class="footer-note">Comprehensive High School Bajja — internal use</div>
+</div>
+
+<script>
+const NAVY = "#1B2A4A";
+const GREEN = "#1E5631";
+const GOLD = "#C9A227";
+
+const BANDS = {
+  cbc: [
+    { label: "Exceptional", min: 80, color: GREEN },
+    { label: "Adequate", min: 55, color: "#2E7D32" },
+    { label: "Moderate", min: 30, color: GOLD },
+    { label: "Basic", min: 1, color: "#B45309" },
+    { label: "Below Basic", min: 0, color: "#B91C1C" },
+  ],
+  uce: [
+    { label: "D1", min: 90, color: "#1B5E20" },
+    { label: "D2", min: 80, color: "#2E7D32" },
+    { label: "C3", min: 75, color: "#388E3C" },
+    { label: "C4", min: 70, color: "#43A047" },
+    { label: "C5", min: 65, color: "#7CB342" },
+    { label: "C6", min: 60, color: GOLD },
+    { label: "P7", min: 50, color: "#F57C00" },
+    { label: "P8", min: 40, color: "#E65100" },
+    { label: "F9", min: 0, color: "#B91C1C" },
+  ],
+  letter: [
+    { label: "A", min: 80, color: "#1B5E20" },
+    { label: "B", min: 70, color: "#388E3C" },
+    { label: "C", min: 60, color: GOLD },
+    { label: "D", min: 50, color: "#E65100" },
+    { label: "F", min: 0, color: "#B91C1C" },
+  ],
+};
+
+function bandFor(pct, scale) {
+  const bands = BANDS[scale];
+  for (const b of bands) {
+    if (pct >= b.min) return b;
+  }
+  return bands[bands.length - 1];
+}
+
+// In-memory state (cleared on page reload — use Export/Import to persist)
+let learners = []; // { id, name, marks }
+let nextId = 1;
+
+const $ = (id) => document.getElementById(id);
+
+function currentTotal() {
+  const t = parseFloat($("totalMarks").value);
+  return isNaN(t) || t <= 0 ? 1 : t;
+}
+function currentScale() {
+  return $("gradeScale").value;
+}
+
+function render() {
+  const total = currentTotal();
+  const scale = currentScale();
+  const wrap = $("tableWrap");
+  const empty = $("emptyState");
+
+  if (learners.length === 0) {
+    wrap.innerHTML = "";
+    wrap.appendChild(empty);
+    $("summaryCard").style.display = "none";
+    $("downloadPdfBtn").disabled = true;
+    $("exportBtn").disabled = true;
+    $("clearBtn").disabled = true;
+    return;
+  }
+
+  $("downloadPdfBtn").disabled = false;
+  $("exportBtn").disabled = false;
+  $("clearBtn").disabled = false;
+
+  let pctSum = 0, high = -Infinity, low = Infinity;
+
+  const rows = learners.map((l, idx) => {
+    const pct = Math.max(0, Math.min(100, (l.marks / total) * 100));
+    pctSum += pct;
+    high = Math.max(high, pct);
+    low = Math.min(low, pct);
+    const band = bandFor(pct, scale);
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${escapeHtml(l.name)}</td>
+        <td>${l.marks} / ${total}</td>
+        <td>${pct.toFixed(1)}%</td>
+        <td><span class="grade-pill" style="background:${band.color}">${band.label}</span></td>
+        <td><button class="del-btn" data-id="${l.id}">Remove</button></td>
+      </tr>`;
+  }).join("");
+
+  wrap.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  wrap.querySelectorAll(".del-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = parseInt(btn.getAttribute("data-id"));
+      learners = learners.filter(l => l.id !== id);
+      render();
+    });
+  });
+
+  $("summaryCard").style.display = "block";
+  $("sumCount").textContent = learners.length;
+  $("sumAvg").textContent = (pctSum / learners.length).toFixed(1) + "%";
+  $("sumHigh").textContent = high.toFixed(1) + "%";
+  $("sumLow").textContent = low.toFixed(1) + "%";
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+$("addBtn").addEventListener("click", () => {
+  const name = $("learnerName").value.trim();
+  const marksVal = $("learnerMarks").value;
+  const marks = parseFloat(marksVal);
+  const total = currentTotal();
+  const err = $("formErr");
+
+  if (!name) {
+    err.textContent = "Enter the learner's name.";
+    return;
+  }
+  if (marksVal === "" || isNaN(marks) || marks < 0) {
+    err.textContent = "Enter a valid number of marks.";
+    return;
+  }
+  if (marks > total) {
+    err.textContent = `Marks can't exceed the total (${total}).`;
+    return;
+  }
+  err.textContent = "";
+  learners.push({ id: nextId++, name, marks });
+  $("learnerName").value = "";
+  $("learnerMarks").value = "";
+  $("learnerName").focus();
+  render();
+});
+
+$("learnerMarks").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("addBtn").click();
+});
+$("learnerName").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("learnerMarks").focus();
+});
+
+$("totalMarks").addEventListener("input", render);
+$("gradeScale").addEventListener("change", render);
+
+$("clearBtn").addEventListener("click", () => {
+  if (confirm("Remove all learners from this register?")) {
+    learners = [];
+    render();
+  }
+});
+
+// Export / Import
+$("exportBtn").addEventListener("click", () => {
+  const payload = {
+    assessmentTitle: $("assessmentTitle").value,
+    totalMarks: currentTotal(),
+    gradeScale: currentScale(),
+    learners: learners.map(({ name, marks }) => ({ name, marks })),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeTitle = (payload.assessmentTitle || "register").replace(/[^a-z0-9]+/gi, "_");
+  a.href = url;
+  a.download = `${safeTitle}_data.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$("importBtn").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      $("assessmentTitle").value = data.assessmentTitle || "Class Assessment";
+      $("totalMarks").value = data.totalMarks || 20;
+      $("gradeScale").value = data.gradeScale || "cbc";
+      learners = (data.learners || []).map(l => ({ id: nextId++, name: l.name, marks: l.marks }));
+      render();
+    } catch (err) {
+      alert("Could not read that file. Please choose a valid exported .json file.");
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+// PDF export
+$("downloadPdfBtn").addEventListener("click", () => {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const total = currentTotal();
+  const scale = currentScale();
+  const title = $("assessmentTitle").value || "Class Assessment";
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 40;
+
+  // Header banner
+  doc.setFillColor(27, 42, 74); // navy
+  doc.rect(0, 0, pageWidth, 70, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text("COMPREHENSIVE HIGH SCHOOL BAJJA – LUKAYA", pageWidth / 2, 28, { align: "center" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
+  doc.text("Learner Marks & Grades Register", pageWidth / 2, 44, { align: "center" });
+  doc.setTextColor(201, 162, 39); // gold
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(9);
+  doc.text('"Knowledge for Service"', pageWidth / 2, 58, { align: "center" });
+
+  // Assessment meta
+  doc.setTextColor(26, 26, 26);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11.5);
+  doc.text(title, margin, 92);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.text(`Total marks: ${total}   |   Grading scale: ${scaleLabel(scale)}   |   Date: ${new Date().toLocaleDateString()}`, margin, 107);
+
+  // Table rows
+  const body = learners.map((l, idx) => {
+    const pct = Math.max(0, Math.min(100, (l.marks / total) * 100));
+    const band = bandFor(pct, scale);
+    return [idx + 1, l.name, `${l.marks} / ${total}`, pct.toFixed(1) + "%", band.label];
+  });
+
+  doc.autoTable({
+    startY: 122,
+    margin: { left: margin, right: margin },
+    head: [["#", "Learner Name", "Marks", "%", "Grade"]],
+    body: body,
+    styles: { fontSize: 9.5, cellPadding: 5 },
+    headStyles: { fillColor: [30, 86, 49], textColor: 255, fontStyle: "bold" }, // green
+    alternateRowStyles: { fillColor: [244, 246, 245] },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      2: { cellWidth: 70 },
+      3: { cellWidth: 55 },
+      4: { cellWidth: 55 },
+    },
+    didDrawPage: (data) => {
+      const pageCount = doc.internal.getNumberOfPages();
+      doc.setFontSize(8.5);
+      doc.setTextColor(107, 118, 128);
+      doc.text(
+        `Comprehensive High School Bajja — Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${pageCount}`,
+        pageWidth / 2, doc.internal.pageSize.getHeight() - 20, { align: "center" }
+      );
+    },
+  });
+
+  // Summary block after table
+  if (learners.length) {
+    const total_ = currentTotal();
+    const pcts = learners.map(l => Math.max(0, Math.min(100, (l.marks / total_) * 100)));
+    const avg = (pcts.reduce((a, b) => a + b, 0) / pcts.length).toFixed(1);
+    const high = Math.max(...pcts).toFixed(1);
+    const low = Math.min(...pcts).toFixed(1);
+    const finalY = doc.lastAutoTable.finalY + 20;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(27, 42, 74);
+    doc.text(
+      `Learners: ${learners.length}    Average: ${avg}%    Highest: ${high}%    Lowest: ${low}%`,
+      margin, finalY
+    );
+  }
+
+  const safeTitle = title.replace(/[^a-z0-9]+/gi, "_");
+  doc.save(`${safeTitle}_marks_register.pdf`);
+});
+
+function scaleLabel(s) {
+  if (s === "cbc") return "CBC Descriptor";
+  if (s === "uce") return "UCE (D1–F9)";
+  return "Letter (A–F)";
+}
+
+render();
+</script>
+</body>
+</html>
