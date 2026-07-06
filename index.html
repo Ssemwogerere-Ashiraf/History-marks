@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Learner Marks &amp; Grades Register — Comprehensive High School Bajja</title>
+<title>Advanced Learner Management System — Comprehensive High School Bajja</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <style>
   :root{
     --navy:#1B2A4A;
@@ -16,6 +17,8 @@
     --line:#E2E6E4;
     --text:#1A1A1A;
     --muted:#6B7680;
+    --blue:#0066CC;
+    --red:#B91C1C;
   }
   *{box-sizing:border-box;}
   body{
@@ -24,7 +27,7 @@
     font-family:'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     color:var(--text);
   }
-  .wrap{max-width:980px;margin:0 auto;padding:24px 16px 60px;}
+  .wrap{max-width:1200px;margin:0 auto;padding:24px 16px 60px;}
   header.top{
     background:var(--navy);
     border-radius:14px;
@@ -66,10 +69,21 @@
     letter-spacing:.5px;
     margin:0 0 14px;
   }
+  .card h3{
+    font-size:12px;
+    font-weight:600;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin:12px 0 8px;
+  }
   .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
   .grid-3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;}
+  .grid-4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;}
+  @media (max-width:900px){
+    .grid-3,.grid-4{grid-template-columns:1fr 1fr;}
+  }
   @media (max-width:600px){
-    .grid-2, .grid-3{grid-template-columns:1fr;}
+    .grid-2, .grid-3, .grid-4{grid-template-columns:1fr;}
   }
   label{
     display:block;
@@ -78,16 +92,20 @@
     color:var(--navy);
     margin-bottom:6px;
   }
-  input[type=text], input[type=number], select{
+  input[type=text], input[type=number], input[type=email], input[type=date], select, textarea{
     width:100%;
     padding:10px 12px;
-    font-size:15px;
+    font-size:14px;
     border-radius:8px;
     border:1.5px solid #D6DBE0;
     outline:none;
     font-family:inherit;
   }
-  input:focus, select:focus{border-color:var(--green);}
+  textarea{
+    resize:vertical;
+    min-height:60px;
+  }
+  input:focus, select:focus, textarea:focus{border-color:var(--green);}
   .btn{
     display:inline-flex;
     align-items:center;
@@ -110,11 +128,13 @@
   }
   .btn.danger{
     background:white;
-    color:#B91C1C;
+    color:var(--red);
     border-color:#F3C6C6;
   }
+  .btn.small{padding:8px 12px;font-size:12px;}
   .btn:disabled{opacity:.5;cursor:not-allowed;}
   .btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  .btn-group{display:flex;gap:8px;flex-wrap:wrap;}
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
   th, td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);}
   th{
@@ -126,44 +146,80 @@
     font-weight:700;
   }
   tr:nth-child(even) td{background:#F7F9F8;}
+  tr:hover td{background:#F0F2F1;}
   .grade-pill{
     display:inline-block;
-    padding:3px 10px;
+    padding:4px 10px;
     border-radius:20px;
     color:white;
     font-weight:700;
     font-size:12px;
-    min-width:30px;
+    min-width:35px;
     text-align:center;
   }
-  .del-btn{
-    background:none;border:none;color:#B91C1C;cursor:pointer;font-size:12px;font-weight:600;
+  .action-btn{
+    background:none;border:none;color:var(--blue);cursor:pointer;font-size:12px;font-weight:600;padding:0;margin:0 4px;
   }
+  .action-btn:hover{text-decoration:underline;}
+  .action-btn.danger{color:var(--red);}
   .empty-state{
     text-align:center;
-    padding:30px 10px;
+    padding:40px 20px;
     color:var(--muted);
-    font-size:13.5px;
+    font-size:14px;
   }
   .summary-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fit, minmax(110px,1fr));
-    gap:10px;
-    margin-top:4px;
+    grid-template-columns:repeat(auto-fit, minmax(120px,1fr));
+    gap:12px;
+    margin-top:8px;
   }
   .summary-box{
     background:#F6F8F7;
     border:1px solid #E7EBE8;
     border-radius:10px;
-    padding:12px 10px;
+    padding:14px 12px;
     text-align:center;
   }
-  .summary-box .val{font-size:19px;font-weight:800;color:var(--green);}
-  .summary-box .lab{font-size:11px;color:var(--muted);margin-top:2px;}
+  .summary-box .val{font-size:22px;font-weight:800;color:var(--green);}
+  .summary-box .lab{font-size:11px;color:var(--muted);margin-top:4px;font-weight:500;}
   .hint{font-size:11.5px;color:#9AA3AB;line-height:1.5;margin-top:10px;}
   .footer-note{text-align:center;font-size:11px;color:#9AA3AB;margin-top:20px;}
   #fileInput{display:none;}
-  .err{color:#B91C1C;font-size:12.5px;margin-top:8px;min-height:14px;}
+  .err{color:var(--red);font-size:12.5px;margin-top:8px;min-height:14px;}
+  .success{color:var(--green);font-size:12.5px;margin-top:8px;}
+  .tab-buttons{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .tab-btn{
+    padding:8px 14px;
+    background:white;
+    border:1.5px solid #D6DBE0;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+    transition:.2s;
+  }
+  .tab-btn.active{background:var(--green);color:white;border-color:var(--green);}
+  .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;}
+  .modal.show{display:flex;}
+  .modal-content{background:white;border-radius:14px;padding:24px;max-width:500px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2);}
+  .modal-header{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:16px;}
+  .modal-footer{margin-top:20px;display:flex;gap:10px;justify-content:flex-end;}
+  .chart-container{position:relative;height:250px;margin-top:16px;}
+  .filter-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px;}
+  .search-box{flex:1;min-width:200px;}
+  .badge{
+    display:inline-block;
+    padding:4px 10px;
+    background:#E8F0FE;
+    color:var(--blue);
+    border-radius:20px;
+    font-size:11px;
+    font-weight:600;
+  }
+  .table-wrapper{overflow-x:auto;}
+  .checkbox-cell{width:40px;}
+  input[type=checkbox]{cursor:pointer;}
 </style>
 </head>
 <body>
@@ -171,91 +227,291 @@
 
   <header class="top">
     <div class="eyebrow">Comprehensive High School Bajja — Lukaya</div>
-    <h1>Learner Marks &amp; Grades Register</h1>
-    <p>Record scores, get automatic grades, and download a printable PDF list.</p>
+    <h1>Advanced Learner Management System</h1>
+    <p>Manage classes, assessments, grades, and generate comprehensive reports with analytics.</p>
   </header>
 
-  <!-- Assessment setup -->
+  <!-- Class Management -->
   <div class="card">
-    <h2>Assessment Details</h2>
+    <h2>Class Management</h2>
     <div class="grid-3">
       <div>
-        <label for="assessmentTitle">Assessment title</label>
-        <input type="text" id="assessmentTitle" placeholder="e.g. Senior Five History CAT 1" value="Class Assessment">
+        <label for="className">Class/Stream name</label>
+        <input type="text" id="className" placeholder="e.g. Senior 5A History" value="Senior 5A">
       </div>
       <div>
-        <label for="totalMarks">Out of (total marks)</label>
-        <input type="number" id="totalMarks" min="1" value="60">
+        <label for="classTeacher">Class teacher</label>
+        <input type="text" id="classTeacher" placeholder="e.g. Mr. Mutua">
       </div>
-      <div>
-        <label for="gradeScale">Grading scale</label>
-        <select id="gradeScale">
-          <option value="cbc">CBC Descriptor</option>
-          <option value="uce">UCE (D1–F9)</option>
-          <option value="letter">Letter (A–F)</option>
+      <div style="display:flex;align-items:flex-end;gap:10px;">
+        <button class="btn" id="createClassBtn" style="flex:1;justify-content:center;">Create/Switch Class</button>
+      </div>
+    </div>
+    <div class="hint">Switch between classes to manage different streams or year groups.</div>
+    <div style="margin-top:12px;">
+      <span class="badge" id="currentClassBadge">No class selected</span>
+    </div>
+  </div>
+
+  <!-- Tabs for different views -->
+  <div class="tab-buttons">
+    <button class="tab-btn active" data-tab="learners">Learner Management</button>
+    <button class="tab-btn" data-tab="assessments">Assessments</button>
+    <button class="tab-btn" data-tab="analytics">Analytics & Reports</button>
+  </div>
+
+  <!-- ===== LEARNER MANAGEMENT TAB ===== -->
+  <div id="tab-learners" class="tab-content">
+
+    <!-- Add Learner -->
+    <div class="card">
+      <h2>Add Learner</h2>
+      <div class="grid-3">
+        <div>
+          <label for="studentId">Student ID</label>
+          <input type="text" id="studentId" placeholder="e.g. S001">
+        </div>
+        <div>
+          <label for="learnerName">Full name</label>
+          <input type="text" id="learnerName" placeholder="e.g. Nakato Sarah">
+        </div>
+        <div>
+          <label for="email">Email (optional)</label>
+          <input type="email" id="email" placeholder="student@school.ug">
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:12px;">
+        <div>
+          <label for="dateEnrolled">Date enrolled</label>
+          <input type="date" id="dateEnrolled">
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn" id="addLearnerBtn" style="width:100%;justify-content:center;">Add Learner</button>
+        </div>
+      </div>
+      <div class="err" id="formErr"></div>
+    </div>
+
+    <!-- Search & Filter -->
+    <div class="card">
+      <h3>Search & Filter</h3>
+      <div class="filter-row">
+        <input type="text" class="search-box" id="searchBox" placeholder="Search by name or ID...">
+        <select id="sortBy">
+          <option value="name">Sort by name</option>
+          <option value="id">Sort by ID</option>
+          <option value="joined">Sort by joined date</option>
         </select>
       </div>
     </div>
-    <div class="hint">Changing the total or scale instantly recalculates every learner's percentage and grade below.</div>
+
+    <!-- Learners Table -->
+    <div class="card">
+      <h2>Learner Register</h2>
+      <div id="learnersTableWrap">
+        <div class="empty-state">No learners added yet. Create a class and add learners above.</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn secondary" id="editSelectedBtn" disabled>Edit Selected</button>
+        <button class="btn danger" id="deleteSelectedBtn" disabled>Delete Selected</button>
+        <button class="btn secondary" id="exportLearnersCsvBtn" disabled>Export as CSV</button>
+      </div>
+    </div>
+
   </div>
 
-  <!-- Add learner -->
+  <!-- ===== ASSESSMENTS TAB ===== -->
+  <div id="tab-assessments" class="tab-content" style="display:none;">
+
+    <!-- Create Assessment -->
+    <div class="card">
+      <h2>Create Assessment</h2>
+      <div class="grid-4">
+        <div>
+          <label for="assessmentTitle">Assessment title</label>
+          <input type="text" id="assessmentTitle" placeholder="e.g. CAT 1">
+        </div>
+        <div>
+          <label for="assessmentType">Type</label>
+          <select id="assessmentType">
+            <option value="cat">Class Assessment (CAT)</option>
+            <option value="quiz">Quiz</option>
+            <option value="midterm">Midterm</option>
+            <option value="final">Final Exam</option>
+          </select>
+        </div>
+        <div>
+          <label for="totalMarks">Total marks</label>
+          <input type="number" id="totalMarks" min="1" value="60">
+        </div>
+        <div>
+          <label for="weight">Weight %</label>
+          <input type="number" id="weight" min="0" max="100" value="20">
+        </div>
+      </div>
+      <div class="grid-3" style="margin-top:12px;">
+        <div>
+          <label for="dueDate">Due date</label>
+          <input type="date" id="dueDate">
+        </div>
+        <div>
+          <label for="gradeScale">Grading scale</label>
+          <select id="gradeScale">
+            <option value="cbc">CBC Descriptor</option>
+            <option value="uce">UCE (D1–F9)</option>
+            <option value="letter">Letter (A–F)</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn" id="createAssessmentBtn" style="width:100%;justify-content:center;">Create Assessment</button>
+        </div>
+      </div>
+      <div class="err" id="assessmentErr"></div>
+    </div>
+
+    <!-- Assessments List -->
+    <div class="card">
+      <h2>Active Assessments</h2>
+      <div id="assessmentsListWrap">
+        <div class="empty-state">No assessments created yet.</div>
+      </div>
+    </div>
+
+    <!-- Enter Marks -->
+    <div class="card" id="enterMarksCard" style="display:none;">
+      <h2>Enter Marks — <span id="marksAssessmentTitle"></span></h2>
+      <div class="grid-3">
+        <div>
+          <label for="marksLearner">Learner</label>
+          <select id="marksLearner"></select>
+        </div>
+        <div>
+          <label for="marksObtained">Marks obtained</label>
+          <input type="number" id="marksObtained" min="0">
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn" id="saveMarkBtn" style="width:100%;justify-content:center;">Save Mark</button>
+        </div>
+      </div>
+      <div class="success" id="markSuccess" style="display:none;"></div>
+      <h3 style="margin-top:20px;">Marks Summary</h3>
+      <div id="marksSummaryWrap"></div>
+    </div>
+
+  </div>
+
+  <!-- ===== ANALYTICS TAB ===== -->
+  <div id="tab-analytics" class="tab-content" style="display:none;">
+
+    <!-- Statistics -->
+    <div class="card">
+      <h2>Class Statistics</h2>
+      <div class="summary-grid">
+        <div class="summary-box">
+          <div class="val" id="statCount">0</div>
+          <div class="lab">Learners</div>
+        </div>
+        <div class="summary-box">
+          <div class="val" id="statAvg">0%</div>
+          <div class="lab">Average</div>
+        </div>
+        <div class="summary-box">
+          <div class="val" id="statMedian">0%</div>
+          <div class="lab">Median</div>
+        </div>
+        <div class="summary-box">
+          <div class="val" id="statHigh">0%</div>
+          <div class="lab">Highest</div>
+        </div>
+        <div class="summary-box">
+          <div class="val" id="statLow">0%</div>
+          <div class="lab">Lowest</div>
+        </div>
+        <div class="summary-box">
+          <div class="val" id="statStdDev">0</div>
+          <div class="lab">Std Dev</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="card">
+      <h2>Performance Visualization</h2>
+      <div class="chart-container">
+        <canvas id="performanceChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Grade Distribution -->
+    <div class="card">
+      <h2>Grade Distribution</h2>
+      <div class="chart-container">
+        <canvas id="gradeDistributionChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Export Reports -->
+    <div class="card">
+      <h2>Generate Reports</h2>
+      <div class="btn-row">
+        <button class="btn" id="generatePdfReport" disabled>Download PDF Report</button>
+        <button class="btn secondary" id="exportAllCsvBtn" disabled>Export All Data (CSV)</button>
+        <button class="btn secondary" id="printReport" disabled>Print Report</button>
+      </div>
+      <div class="hint">Generate detailed class reports with statistics and individual learner breakdowns.</div>
+    </div>
+
+  </div>
+
+  <!-- Data Management -->
   <div class="card">
-    <h2>Add Learner</h2>
-    <div class="grid-3">
-      <div>
-        <label for="learnerName">Learner name</label>
-        <input type="text" id="learnerName" placeholder="e.g. Nakato Sarah">
-      </div>
-      <div>
-        <label for="learnerMarks">Marks obtained</label>
-        <input type="number" id="learnerMarks" min="0" placeholder="e.g. 15">
-      </div>
-      <div style="display:flex;align-items:flex-end;">
-        <button class="btn" id="addBtn" style="width:100%;justify-content:center;">Add Learner</button>
-      </div>
-    </div>
-    <div class="err" id="formErr"></div>
-  </div>
-
-  <!-- Summary -->
-  <div class="card" id="summaryCard" style="display:none;">
-    <h2>Class Summary</h2>
-    <div class="summary-grid">
-      <div class="summary-box"><div class="val" id="sumCount">0</div><div class="lab">Learners</div></div>
-      <div class="summary-box"><div class="val" id="sumAvg">0%</div><div class="lab">Average</div></div>
-      <div class="summary-box"><div class="val" id="sumHigh">0%</div><div class="lab">Highest</div></div>
-      <div class="summary-box"><div class="val" id="sumLow">0%</div><div class="lab">Lowest</div></div>
-    </div>
-  </div>
-
-  <!-- Table -->
-  <div class="card">
-    <h2>Register</h2>
-    <div id="tableWrap">
-      <div class="empty-state" id="emptyState">No learners added yet. Add the first one above.</div>
-    </div>
+    <h2>Data Management</h2>
     <div class="btn-row">
-      <button class="btn" id="downloadPdfBtn" disabled>Download PDF</button>
-      <button class="btn secondary" id="exportBtn" disabled>Export data (.json)</button>
-      <button class="btn secondary" id="importBtn">Import data (.json)</button>
-      <button class="btn danger" id="clearBtn" disabled>Clear all</button>
-      <input type="file" id="fileInput" accept="application/json">
+      <button class="btn secondary" id="backupBtn">Backup Data</button>
+      <button class="btn secondary" id="restoreBtn">Restore Data</button>
+      <button class="btn secondary" id="importJsonBtn">Import JSON</button>
+      <button class="btn danger" id="resetBtn">Reset All</button>
+      <input type="file" id="fileInput" accept="application/json" style="display:none;">
     </div>
-    <div class="hint">
-      Data lives in this browser tab only and is <b>not saved automatically</b>. Use
-      <b>Export data</b> before closing the tab, and <b>Import data</b> next time to continue
-      where you left off.
-    </div>
+    <div class="success" id="dataMsg" style="display:none;margin-top:10px;"></div>
   </div>
 
-  <div class="footer-note">Comprehensive High School Bajja — internal use</div>
+  <div class="footer-note">Comprehensive High School Bajja — Advanced Learning Management System v2.0</div>
+</div>
+
+<!-- Edit Learner Modal -->
+<div class="modal" id="editModal">
+  <div class="modal-content">
+    <div class="modal-header">Edit Learner</div>
+    <div style="margin-bottom:14px;">
+      <label for="editStudentId">Student ID</label>
+      <input type="text" id="editStudentId">
+    </div>
+    <div style="margin-bottom:14px;">
+      <label for="editLearnerName">Full name</label>
+      <input type="text" id="editLearnerName">
+    </div>
+    <div style="margin-bottom:14px;">
+      <label for="editEmail">Email</label>
+      <input type="email" id="editEmail">
+    </div>
+    <div style="margin-bottom:14px;">
+      <label for="editComment">Comment/Notes</label>
+      <textarea id="editComment" placeholder="Add notes about this learner..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn secondary" id="closeEditModal">Cancel</button>
+      <button class="btn" id="saveEditBtn">Save Changes</button>
+    </div>
+  </div>
 </div>
 
 <script>
 const NAVY = "#1B2A4A";
 const GREEN = "#1E5631";
 const GOLD = "#C9A227";
+const BLUE = "#0066CC";
+const RED = "#B91C1C";
 
 const BANDS = {
   cbc: [
@@ -263,7 +519,7 @@ const BANDS = {
     { label: "Adequate", min: 55, color: "#2E7D32" },
     { label: "Moderate", min: 30, color: GOLD },
     { label: "Basic", min: 1, color: "#B45309" },
-    { label: "Below Basic", min: 0, color: "#B91C1C" },
+    { label: "Below Basic", min: 0, color: RED },
   ],
   uce: [
     { label: "D1", min: 90, color: "#1B5E20" },
@@ -274,288 +530,567 @@ const BANDS = {
     { label: "C6", min: 60, color: GOLD },
     { label: "P7", min: 50, color: "#F57C00" },
     { label: "P8", min: 40, color: "#E65100" },
-    { label: "F9", min: 0, color: "#B91C1C" },
+    { label: "F9", min: 0, color: RED },
   ],
   letter: [
     { label: "A", min: 80, color: "#1B5E20" },
     { label: "B", min: 70, color: "#388E3C" },
     { label: "C", min: 60, color: GOLD },
     { label: "D", min: 50, color: "#E65100" },
-    { label: "F", min: 0, color: "#B91C1C" },
+    { label: "F", min: 0, color: RED },
   ],
 };
 
+// State
+let classes = [];
+let currentClassId = null;
+let learners = [];
+let assessments = [];
+let marks = {};
+
+const $ = (id) => document.getElementById(id);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+// Initialize
+function init() {
+  loadData();
+  setupEventListeners();
+  renderClasses();
+}
+
+function setupEventListeners() {
+  $("createClassBtn").addEventListener("click", createClass);
+  $("addLearnerBtn").addEventListener("click", addLearner);
+  $("searchBox").addEventListener("input", filterLearners);
+  $("sortBy").addEventListener("change", renderLearners);
+  $("createAssessmentBtn").addEventListener("click", createAssessment);
+  $("saveMarkBtn").addEventListener("click", saveMark);
+  $("generatePdfReport").addEventListener("click", generatePdfReport);
+  $("exportAllCsvBtn").addEventListener("click", exportAllCsv);
+  $("exportLearnersCsvBtn").addEventListener("click", exportLearnersCsv);
+  $("backupBtn").addEventListener("click", backupData);
+  $("restoreBtn").addEventListener("click", () => $("fileInput").click());
+  $("importJsonBtn").addEventListener("click", () => $("fileInput").click());
+  $("resetBtn").addEventListener("click", resetAll);
+  $("deleteSelectedBtn").addEventListener("click", deleteSelected);
+  $("printReport").addEventListener("click", printReport);
+  $("closeEditModal").addEventListener("click", () => $("editModal").classList.remove("show"));
+  $("saveEditBtn").addEventListener("click", saveEdit);
+  $("fileInput").addEventListener("change", importData);
+
+  $$(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => switchTab(e.target.dataset.tab));
+  });
+}
+
+function switchTab(tabName) {
+  $$(".tab-content").forEach(el => el.style.display = "none");
+  $(`tab-${tabName}`).style.display = "block";
+  $$(".tab-btn").forEach(btn => btn.classList.remove("active"));
+  event.target.classList.add("active");
+  if (tabName === "analytics") updateAnalytics();
+}
+
+function createClass() {
+  const name = $("className").value.trim();
+  const teacher = $("classTeacher").value.trim();
+  if (!name) return alert("Enter class name");
+  const classObj = { id: Date.now(), name, teacher, createdAt: new Date().toISOString() };
+  classes.push(classObj);
+  currentClassId = classObj.id;
+  learners = [];
+  assessments = [];
+  marks = {};
+  renderClasses();
+  saveData();
+  $("className").value = "";
+  $("classTeacher").value = "";
+}
+
+function renderClasses() {
+  const cls = classes.find(c => c.id === currentClassId);
+  if (cls) {
+    $("currentClassBadge").textContent = `${cls.name} (${cls.teacher || "No teacher"})`;
+  } else {
+    $("currentClassBadge").textContent = "No class selected";
+  }
+}
+
+function addLearner() {
+  if (!currentClassId) return alert("Select/create a class first");
+  const id = $("studentId").value.trim();
+  const name = $("learnerName").value.trim();
+  const email = $("email").value.trim();
+  const joined = $("dateEnrolled").value;
+  const err = $("formErr");
+
+  if (!id || !name) { err.textContent = "Enter ID and name"; return; }
+  if (learners.some(l => l.id === id)) { err.textContent = "ID already exists"; return; }
+  err.textContent = "";
+
+  learners.push({ id, name, email, joined, comment: "" });
+  $("studentId").value = "";
+  $("learnerName").value = "";
+  $("email").value = "";
+  $("dateEnrolled").value = "";
+  renderLearners();
+  saveData();
+}
+
+function renderLearners() {
+  if (learners.length === 0) {
+    $("learnersTableWrap").innerHTML = '<div class="empty-state">No learners added yet.</div>';
+    return;
+  }
+  const sorted = [...learners].sort((a, b) => {
+    const by = $("sortBy").value;
+    if (by === "name") return a.name.localeCompare(b.name);
+    if (by === "id") return a.id.localeCompare(b.id);
+    if (by === "joined") return new Date(a.joined) - new Date(b.joined);
+    return 0;
+  });
+
+  const rows = sorted.map(l => `
+    <tr>
+      <td><input type="checkbox" class="learner-checkbox" value="${l.id}"></td>
+      <td>${l.id}</td>
+      <td>${l.name}</td>
+      <td>${l.email || "—"}</td>
+      <td>${l.joined || "—"}</td>
+      <td><button class="action-btn" onclick="editLearner('${l.id}')">Edit</button> <button class="action-btn danger" onclick="deleteLearner('${l.id}')">Delete</button></td>
+    </tr>
+  `).join("");
+
+  $("learnersTableWrap").innerHTML = `
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th class="checkbox-cell"><input type="checkbox" id="selectAll"></th><th>ID</th><th>Name</th><th>Email</th><th>Joined</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  $("selectAll").addEventListener("change", (e) => {
+    $$(".learner-checkbox").forEach(cb => cb.checked = e.target.checked);
+    updateButtons();
+  });
+  $$(".learner-checkbox").forEach(cb => cb.addEventListener("change", updateButtons));
+}
+
+function updateButtons() {
+  const checked = $$(".learner-checkbox:checked").length > 0;
+  $("deleteSelectedBtn").disabled = !checked;
+  $("editSelectedBtn").disabled = checked !== 1;
+  $("exportLearnersCsvBtn").disabled = learners.length === 0;
+}
+
+function editLearner(id) {
+  const l = learners.find(x => x.id === id);
+  if (!l) return;
+  $("editStudentId").value = l.id;
+  $("editLearnerName").value = l.name;
+  $("editEmail").value = l.email;
+  $("editComment").value = l.comment || "";
+  $("editModal").dataset.editId = id;
+  $("editModal").classList.add("show");
+}
+
+function saveEdit() {
+  const id = $("editModal").dataset.editId;
+  const l = learners.find(x => x.id === id);
+  if (l) {
+    l.id = $("editStudentId").value;
+    l.name = $("editLearnerName").value;
+    l.email = $("editEmail").value;
+    l.comment = $("editComment").value;
+    renderLearners();
+    saveData();
+    $("editModal").classList.remove("show");
+  }
+}
+
+function deleteLearner(id) {
+  if (confirm("Delete this learner?")) {
+    learners = learners.filter(l => l.id !== id);
+    renderLearners();
+    saveData();
+  }
+}
+
+function deleteSelected() {
+  const ids = Array.from($$(".learner-checkbox:checked")).map(cb => cb.value);
+  if (confirm(`Delete ${ids.length} learner(s)?`)) {
+    learners = learners.filter(l => !ids.includes(l.id));
+    renderLearners();
+    saveData();
+  }
+}
+
+function filterLearners() {
+  const query = $("searchBox").value.toLowerCase();
+  const filtered = learners.filter(l => l.name.toLowerCase().includes(query) || l.id.toLowerCase().includes(query));
+  if (filtered.length === 0) {
+    $("learnersTableWrap").innerHTML = '<div class="empty-state">No results found.</div>';
+    return;
+  }
+  const rows = filtered.map(l => `
+    <tr>
+      <td><input type="checkbox" class="learner-checkbox" value="${l.id}"></td>
+      <td>${l.id}</td>
+      <td>${l.name}</td>
+      <td>${l.email || "—"}</td>
+      <td>${l.joined || "—"}</td>
+      <td><button class="action-btn" onclick="editLearner('${l.id}')">Edit</button> <button class="action-btn danger" onclick="deleteLearner('${l.id}')">Delete</button></td>
+    </tr>
+  `).join("");
+  $("learnersTableWrap").innerHTML = `<div class="table-wrapper"><table><thead><tr><th class="checkbox-cell"></th><th>ID</th><th>Name</th><th>Email</th><th>Joined</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function createAssessment() {
+  const title = $("assessmentTitle").value.trim();
+  const type = $("assessmentType").value;
+  const total = parseFloat($("totalMarks").value);
+  const weight = parseFloat($("weight").value);
+  const due = $("dueDate").value;
+  const scale = $("gradeScale").value;
+  const err = $("assessmentErr");
+
+  if (!title || !total) { err.textContent = "Fill all fields"; return; }
+  err.textContent = "";
+
+  const assess = { id: Date.now(), title, type, total, weight, due, scale, createdAt: new Date().toISOString() };
+  assessments.push(assess);
+  renderAssessments();
+  saveData();
+  $("assessmentTitle").value = "";
+  $("totalMarks").value = "60";
+  $("weight").value = "20";
+  $("dueDate").value = "";
+}
+
+function renderAssessments() {
+  if (assessments.length === 0) {
+    $("assessmentsListWrap").innerHTML = '<div class="empty-state">No assessments created yet.</div>';
+    return;
+  }
+  const list = assessments.map(a => `
+    <div style="padding:12px;border:1px solid #D6DBE0;border-radius:8px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <strong>${a.title}</strong> (${a.type}) — ${a.total} marks | Weight: ${a.weight}%
+          <br><small style="color:#6B7680;">Due: ${a.due || "No date"}</small>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn small" onclick="openMarkEntry('${a.id}')">Enter Marks</button>
+          <button class="btn small danger" onclick="deleteAssessment('${a.id}')">Delete</button>
+        </div>
+      </div>
+    </div>
+  `).join("");
+  $("assessmentsListWrap").innerHTML = list;
+}
+
+function openMarkEntry(assessId) {
+  const assess = assessments.find(a => a.id == assessId);
+  if (!assess) return;
+  $("marksAssessmentTitle").textContent = assess.title;
+  $("enterMarksCard").dataset.assessId = assessId;
+  $("enterMarksCard").style.display = "block";
+  renderMarksLearnerSelect(assessId);
+  renderMarksSummary(assessId);
+}
+
+function renderMarksLearnerSelect(assessId) {
+  const sel = $("marksLearner");
+  sel.innerHTML = '<option value="">-- Select a learner --</option>' + learners.map(l => 
+    `<option value="${l.id}">${l.name} (${l.id})</option>`
+  ).join("");
+}
+
+function renderMarksSummary(assessId) {
+  const assess = assessments.find(a => a.id == assessId);
+  if (!assess) return;
+  const learnersWithMarks = learners.filter(l => marks[`${assessId}-${l.id}`] !== undefined).map(l => ({
+    ...l,
+    mark: marks[`${assessId}-${l.id}`]
+  }));
+  const markVals = learnersWithMarks.map(l => (l.mark / assess.total) * 100);
+  const avg = markVals.length ? (markVals.reduce((a, b) => a + b) / markVals.length).toFixed(1) : 0;
+  const html = learnersWithMarks.map(l => {
+    const pct = ((l.mark / assess.total) * 100).toFixed(1);
+    const band = bandFor(pct, assess.scale);
+    return `
+      <tr>
+        <td>${l.name}</td>
+        <td>${l.mark} / ${assess.total}</td>
+        <td>${pct}%</td>
+        <td><span class="grade-pill" style="background:${band.color}">${band.label}</span></td>
+        <td><button class="action-btn danger small" onclick="deleteMark('${assessId}','${l.id}')">Delete</button></td>
+      </tr>
+    `;
+  }).join("");
+  $("marksSummaryWrap").innerHTML = learnersWithMarks.length > 0 ? 
+    `<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th></th></tr></thead><tbody>${html}</tbody></table></div><p style="color:#6B7680;margin-top:10px;">Average: ${avg}%</p>` :
+    '<div class="empty-state">No marks entered yet.</div>';
+}
+
+function saveMark() {
+  const assessId = $("enterMarksCard").dataset.assessId;
+  const learnerId = $("marksLearner").value;
+  const markVal = parseFloat($("marksObtained").value);
+  const assess = assessments.find(a => a.id == assessId);
+
+  if (!learnerId || isNaN(markVal) || markVal < 0 || markVal > assess.total) {
+    return alert("Enter valid mark");
+  }
+
+  marks[`${assessId}-${learnerId}`] = markVal;
+  $("marksObtained").value = "";
+  $("marksLearner").value = "";
+  renderMarksSummary(assessId);
+  $("markSuccess").style.display = "block";
+  $("markSuccess").textContent = "Mark saved!";
+  setTimeout(() => $("markSuccess").style.display = "none", 3000);
+  saveData();
+}
+
+function deleteMark(assessId, learnerId) {
+  delete marks[`${assessId}-${learnerId}`];
+  renderMarksSummary(assessId);
+  saveData();
+}
+
+function deleteAssessment(assessId) {
+  if (confirm("Delete this assessment?")) {
+    assessments = assessments.filter(a => a.id != assessId);
+    Object.keys(marks).forEach(k => {
+      if (k.startsWith(assessId + "-")) delete marks[k];
+    });
+    renderAssessments();
+    saveData();
+  }
+}
+
 function bandFor(pct, scale) {
-  const bands = BANDS[scale];
+  const bands = BANDS[scale || "cbc"];
   for (const b of bands) {
     if (pct >= b.min) return b;
   }
   return bands[bands.length - 1];
 }
 
-// In-memory state (cleared on page reload — use Export/Import to persist)
-let learners = []; // { id, name, marks }
-let nextId = 1;
+function updateAnalytics() {
+  if (learners.length === 0) return;
+  const allMarks = [];
+  Object.values(marks).forEach(m => allMarks.push(m));
+  const allPcts = allMarks.map(m => (m / 100) * 100);
+  const avg = allPcts.length ? (allPcts.reduce((a, b) => a + b) / allPcts.length).toFixed(1) : 0;
+  const sorted = [...allPcts].sort((a, b) => a - b);
+  const median = sorted.length % 2 === 0 ? ((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2).toFixed(1) : sorted[Math.floor(sorted.length / 2)].toFixed(1);
+  const high = allPcts.length ? Math.max(...allPcts).toFixed(1) : 0;
+  const low = allPcts.length ? Math.min(...allPcts).toFixed(1) : 0;
+  const variance = allPcts.length ? (allPcts.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / allPcts.length).toFixed(2) : 0;
+  const stdDev = Math.sqrt(variance).toFixed(2);
 
-const $ = (id) => document.getElementById(id);
+  $("statCount").textContent = learners.length;
+  $("statAvg").textContent = avg + "%";
+  $("statMedian").textContent = median + "%";
+  $("statHigh").textContent = high + "%";
+  $("statLow").textContent = low + "%";
+  $("statStdDev").textContent = stdDev;
 
-function currentTotal() {
-  const t = parseFloat($("totalMarks").value);
-  return isNaN(t) || t <= 0 ? 1 : t;
+  renderCharts();
 }
-function currentScale() {
-  return $("gradeScale").value;
-}
 
-function render() {
-  const total = currentTotal();
-  const scale = currentScale();
-  const wrap = $("tableWrap");
-  const empty = $("emptyState");
+function renderCharts() {
+  const allMarks = [];
+  Object.values(marks).forEach(m => allMarks.push(m));
+  const allPcts = allMarks.map(m => Math.min(100, (m / 100) * 100));
 
-  if (learners.length === 0) {
-    wrap.innerHTML = "";
-    wrap.appendChild(empty);
-    $("summaryCard").style.display = "none";
-    $("downloadPdfBtn").disabled = true;
-    $("exportBtn").disabled = true;
-    $("clearBtn").disabled = true;
-    return;
-  }
-
-  $("downloadPdfBtn").disabled = false;
-  $("exportBtn").disabled = false;
-  $("clearBtn").disabled = false;
-
-  let pctSum = 0, high = -Infinity, low = Infinity;
-
-  const rows = learners.map((l, idx) => {
-    const pct = Math.max(0, Math.min(100, (l.marks / total) * 100));
-    pctSum += pct;
-    high = Math.max(high, pct);
-    low = Math.min(low, pct);
-    const band = bandFor(pct, scale);
-    return `
-      <tr>
-        <td>${idx + 1}</td>
-        <td>${escapeHtml(l.name)}</td>
-        <td>${l.marks} / ${total}</td>
-        <td>${pct.toFixed(1)}%</td>
-        <td>${(pct / 100 * 3).toFixed(1)}</td>
-        <td><span class="grade-pill" style="background:${band.color}">${band.label}</span></td>
-        <td><button class="del-btn" data-id="${l.id}">Remove</button></td>
-      </tr>`;
-  }).join("");
-
-  wrap.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Name</th><th>Marks</th><th>%</th><th>/3</th><th>Grade</th><th></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-
-  wrap.querySelectorAll(".del-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = parseInt(btn.getAttribute("data-id"));
-      learners = learners.filter(l => l.id !== id);
-      render();
-    });
+  const ctx1 = $("performanceChart").getContext("2d");
+  if (window.perfChart) window.perfChart.destroy();
+  window.perfChart = new Chart(ctx1, {
+    type: "bar",
+    data: {
+      labels: learners.slice(0, 15).map(l => l.name.split(" ")[0]),
+      datasets: [{
+        label: "Performance %",
+        data: learners.slice(0, 15).map(l => {
+          const marks = Object.entries(marks)
+            .filter(([k]) => k.endsWith(`-${l.id}`))
+            .map(([, v]) => v);
+          return marks.length ? ((marks.reduce((a, b) => a + b) / marks.length / 100) * 100).toFixed(1) : 0;
+        }),
+        backgroundColor: GREEN,
+        borderRadius: 8,
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 
-  $("summaryCard").style.display = "block";
-  $("sumCount").textContent = learners.length;
-  $("sumAvg").textContent = (pctSum / learners.length).toFixed(1) + "%";
-  $("sumHigh").textContent = high.toFixed(1) + "%";
-  $("sumLow").textContent = low.toFixed(1) + "%";
+  const gradeCounts = { "Exceptional": 0, "Adequate": 0, "Moderate": 0, "Basic": 0, "Below Basic": 0 };
+  allPcts.forEach(pct => {
+    const band = bandFor(pct, "cbc");
+    gradeCounts[band.label] = (gradeCounts[band.label] || 0) + 1;
+  });
+
+  const ctx2 = $("gradeDistributionChart").getContext("2d");
+  if (window.gradeChart) window.gradeChart.destroy();
+  window.gradeChart = new Chart(ctx2, {
+    type: "doughnut",
+    data: {
+      labels: Object.keys(gradeCounts),
+      datasets: [{
+        data: Object.values(gradeCounts),
+        backgroundColor: [GREEN, "#2E7D32", GOLD, "#B45309", RED],
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+  });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+function generatePdfReport() {
+  if (learners.length === 0) return alert("No learners to report");
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const cls = classes.find(c => c.id === currentClassId);
+  const title = `${cls.name} - Learner Report`;
+
+  doc.setFillColor(27, 42, 74);
+  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 40, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("COMPREHENSIVE HIGH SCHOOL BAJJA", doc.internal.pageSize.getWidth() / 2, 15, { align: "center" });
+  doc.setFontSize(12);
+  doc.text(title, doc.internal.pageSize.getWidth() / 2, 28, { align: "center" });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Date: ${new Date().toLocaleDateString()}`, 15, 55);
+  doc.text(`Teacher: ${cls.teacher || "N/A"}`, 15, 62);
+
+  const body = learners.map((l, i) => [i + 1, l.id, l.name, l.email || "—", l.comment || "—"]);
+  doc.autoTable({
+    startY: 70,
+    head: [["#", "ID", "Name", "Email", "Comment"]],
+    body: body,
+    margin: { left: 15, right: 15 },
+  });
+
+  doc.save(`${cls.name}_Report.pdf`);
 }
 
-$("addBtn").addEventListener("click", () => {
-  const name = $("learnerName").value.trim();
-  const marksVal = $("learnerMarks").value;
-  const marks = parseFloat(marksVal);
-  const total = currentTotal();
-  const err = $("formErr");
+function exportAllCsv() {
+  const cls = classes.find(c => c.id === currentClassId);
+  let csv = "Class Report\n";
+  csv += `Class: ${cls.name}\nTeacher: ${cls.teacher}\nDate: ${new Date().toLocaleDateString()}\n\n`;
+  csv += "Student ID,Name,Email,Joined,Comment\n";
+  learners.forEach(l => {
+    csv += `"${l.id}","${l.name}","${l.email}","${l.joined}","${(l.comment || "").replace(/"/g, '""')}"\n`;
+  });
 
-  if (!name) {
-    err.textContent = "Enter the learner's name.";
-    return;
-  }
-  if (marksVal === "" || isNaN(marks) || marks < 0) {
-    err.textContent = "Enter a valid number of marks.";
-    return;
-  }
-  if (marks > total) {
-    err.textContent = `Marks can't exceed the total (${total}).`;
-    return;
-  }
-  err.textContent = "";
-  learners.push({ id: nextId++, name, marks });
-  $("learnerName").value = "";
-  $("learnerMarks").value = "";
-  $("learnerName").focus();
-  render();
-});
-
-$("learnerMarks").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("addBtn").click();
-});
-$("learnerName").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("learnerMarks").focus();
-});
-
-$("totalMarks").addEventListener("input", render);
-$("gradeScale").addEventListener("change", render);
-
-$("clearBtn").addEventListener("click", () => {
-  if (confirm("Remove all learners from this register?")) {
-    learners = [];
-    render();
-  }
-});
-
-// Export / Import
-$("exportBtn").addEventListener("click", () => {
-  const payload = {
-    assessmentTitle: $("assessmentTitle").value,
-    totalMarks: currentTotal(),
-    gradeScale: currentScale(),
-    learners: learners.map(({ name, marks }) => ({ name, marks })),
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const safeTitle = (payload.assessmentTitle || "register").replace(/[^a-z0-9]+/gi, "_");
   a.href = url;
-  a.download = `${safeTitle}_data.json`;
+  a.download = `${cls.name}_Report.csv`;
   a.click();
   URL.revokeObjectURL(url);
-});
+}
 
-$("importBtn").addEventListener("click", () => $("fileInput").click());
-$("fileInput").addEventListener("change", (e) => {
+function exportLearnersCsv() {
+  let csv = "Student ID,Name,Email,Joined,Comment\n";
+  learners.forEach(l => {
+    csv += `"${l.id}","${l.name}","${l.email}","${l.joined}","${(l.comment || "").replace(/"/g, '""')}"\n`;
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "learners.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function backupData() {
+  const backup = { classes, currentClassId, learners, assessments, marks, timestamp: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `backup_${new Date().getTime()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  $("dataMsg").style.display = "block";
+  $("dataMsg").textContent = "✓ Backup created!";
+  setTimeout(() => $("dataMsg").style.display = "none", 3000);
+}
+
+function importData(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const data = JSON.parse(reader.result);
-      $("assessmentTitle").value = data.assessmentTitle || "Class Assessment";
-      $("totalMarks").value = data.totalMarks || 60;
-      $("gradeScale").value = data.gradeScale || "cbc";
-      learners = (data.learners || []).map(l => ({ id: nextId++, name: l.name, marks: l.marks }));
-      render();
+      classes = data.classes || [];
+      currentClassId = data.currentClassId;
+      learners = data.learners || [];
+      assessments = data.assessments || [];
+      marks = data.marks || {};
+      renderClasses();
+      renderLearners();
+      renderAssessments();
+      saveData();
+      $("dataMsg").style.display = "block";
+      $("dataMsg").textContent = "✓ Data restored successfully!";
+      setTimeout(() => $("dataMsg").style.display = "none", 3000);
     } catch (err) {
-      alert("Could not read that file. Please choose a valid exported .json file.");
+      alert("Invalid file format");
     }
   };
   reader.readAsText(file);
   e.target.value = "";
-});
-
-// PDF export
-$("downloadPdfBtn").addEventListener("click", () => {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const total = currentTotal();
-  const scale = currentScale();
-  const title = $("assessmentTitle").value || "Class Assessment";
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 40;
-
-  // Header banner
-  doc.setFillColor(27, 42, 74); // navy
-  doc.rect(0, 0, pageWidth, 70, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.text("COMPREHENSIVE HIGH SCHOOL BAJJA – LUKAYA", pageWidth / 2, 28, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  doc.text("Learner Marks & Grades Register", pageWidth / 2, 44, { align: "center" });
-  doc.setTextColor(201, 162, 39); // gold
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(9);
-  doc.text('"Knowledge for Service"', pageWidth / 2, 58, { align: "center" });
-
-  // Assessment meta
-  doc.setTextColor(26, 26, 26);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11.5);
-  doc.text(title, margin, 92);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.text(`Total marks: ${total}   |   Grading scale: ${scaleLabel(scale)}   |   Date: ${new Date().toLocaleDateString()}`, margin, 107);
-
-  // Table rows
-  const body = learners.map((l, idx) => {
-    const pct = Math.max(0, Math.min(100, (l.marks / total) * 100));
-    const band = bandFor(pct, scale);
-    return [idx + 1, l.name, `${l.marks} / ${total}`, pct.toFixed(1) + "%", (pct / 100 * 3).toFixed(1), band.label];
-  });
-
-  doc.autoTable({
-    startY: 122,
-    margin: { left: margin, right: margin },
-    head: [["#", "Learner Name", "Marks", "%", "/3", "Grade"]],
-    body: body,
-    styles: { fontSize: 9.5, cellPadding: 5 },
-    headStyles: { fillColor: [30, 86, 49], textColor: 255, fontStyle: "bold" }, // green
-    alternateRowStyles: { fillColor: [244, 246, 245] },
-    columnStyles: {
-      0: { cellWidth: 28 },
-      2: { cellWidth: 70 },
-      3: { cellWidth: 50 },
-      4: { cellWidth: 40 },
-      5: { cellWidth: 55 },
-    },
-    didDrawPage: (data) => {
-      const pageCount = doc.internal.getNumberOfPages();
-      doc.setFontSize(8.5);
-      doc.setTextColor(107, 118, 128);
-      doc.text(
-        `Comprehensive High School Bajja — Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${pageCount}`,
-        pageWidth / 2, doc.internal.pageSize.getHeight() - 20, { align: "center" }
-      );
-    },
-  });
-
-  // Summary block after table
-  if (learners.length) {
-    const total_ = currentTotal();
-    const pcts = learners.map(l => Math.max(0, Math.min(100, (l.marks / total_) * 100)));
-    const avg = (pcts.reduce((a, b) => a + b, 0) / pcts.length).toFixed(1);
-    const high = Math.max(...pcts).toFixed(1);
-    const low = Math.min(...pcts).toFixed(1);
-    const finalY = doc.lastAutoTable.finalY + 20;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(27, 42, 74);
-    doc.text(
-      `Learners: ${learners.length}    Average: ${avg}%    Highest: ${high}%    Lowest: ${low}%`,
-      margin, finalY
-    );
-  }
-
-  const safeTitle = title.replace(/[^a-z0-9]+/gi, "_");
-  doc.save(`${safeTitle}_marks_register.pdf`);
-});
-
-function scaleLabel(s) {
-  if (s === "cbc") return "CBC Descriptor";
-  if (s === "uce") return "UCE (D1–F9)";
-  return "Letter (A–F)";
 }
 
-render();
+function resetAll() {
+  if (confirm("Reset ALL data? This cannot be undone!")) {
+    classes = [];
+    currentClassId = null;
+    learners = [];
+    assessments = [];
+    marks = {};
+    localStorage.clear();
+    location.reload();
+  }
+}
+
+function printReport() {
+  window.print();
+}
+
+function saveData() {
+  const data = { classes, currentClassId, learners, assessments, marks };
+  localStorage.setItem("lmData", JSON.stringify(data));
+}
+
+function loadData() {
+  const stored = localStorage.getItem("lmData");
+  if (stored) {
+    const data = JSON.parse(stored);
+    classes = data.classes || [];
+    currentClassId = data.currentClassId;
+    learners = data.learners || [];
+    assessments = data.assessments || [];
+    marks = data.marks || {};
+    renderClasses();
+    renderLearners();
+    renderAssessments();
+  }
+}
+
+init();
 </script>
 </body>
 </html>
