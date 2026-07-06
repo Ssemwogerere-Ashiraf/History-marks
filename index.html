@@ -396,6 +396,10 @@
       <div class="success" id="markSuccess" style="display:none;"></div>
       <h3 style="margin-top:20px;">Marks Summary</h3>
       <div id="marksSummaryWrap"></div>
+      <div class="btn-row">
+        <button class="btn" id="downloadAssessmentPdfBtn" disabled>Download PDF</button>
+        <button class="btn secondary" id="printAssessmentBtn" disabled>Print</button>
+      </div>
     </div>
 
   </div>
@@ -469,10 +473,10 @@
     <div class="btn-row">
       <button class="btn secondary" id="backupBtn">Backup Data</button>
       <button class="btn secondary" id="restoreBtn">Restore Data</button>
-      <button class="btn secondary" id="importJsonBtn">Import JSON</button>
       <button class="btn danger" id="resetBtn">Reset All</button>
       <input type="file" id="fileInput" accept="application/json" style="display:none;">
     </div>
+    <div class="hint">Data lives in this browser tab only and is not saved automatically. Use <b>Backup Data</b> before closing the tab, and <b>Restore Data</b> next time to continue where you left off.</div>
     <div class="success" id="dataMsg" style="display:none;margin-top:10px;"></div>
   </div>
 
@@ -541,7 +545,7 @@ const BANDS = {
   ],
 };
 
-// State
+// State (in-memory only — use Backup/Restore Data to persist across sessions)
 let classes = [];
 let currentClassId = null;
 let learners = [];
@@ -553,7 +557,6 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 // Initialize
 function init() {
-  loadData();
   setupEventListeners();
   renderClasses();
 }
@@ -570,24 +573,28 @@ function setupEventListeners() {
   $("exportLearnersCsvBtn").addEventListener("click", exportLearnersCsv);
   $("backupBtn").addEventListener("click", backupData);
   $("restoreBtn").addEventListener("click", () => $("fileInput").click());
-  $("importJsonBtn").addEventListener("click", () => $("fileInput").click());
   $("resetBtn").addEventListener("click", resetAll);
   $("deleteSelectedBtn").addEventListener("click", deleteSelected);
   $("printReport").addEventListener("click", printReport);
   $("closeEditModal").addEventListener("click", () => $("editModal").classList.remove("show"));
   $("saveEditBtn").addEventListener("click", saveEdit);
   $("fileInput").addEventListener("change", importData);
+  $("downloadAssessmentPdfBtn").addEventListener("click", () => {
+    const assessId = $("enterMarksCard").dataset.assessId;
+    if (assessId) generateAssessmentPdf(assessId);
+  });
+  $("printAssessmentBtn").addEventListener("click", () => window.print());
 
   $$(".tab-btn").forEach(btn => {
-    btn.addEventListener("click", (e) => switchTab(e.target.dataset.tab));
+    btn.addEventListener("click", (e) => switchTab(e.currentTarget.dataset.tab, e.currentTarget));
   });
 }
 
-function switchTab(tabName) {
+function switchTab(tabName, btnEl) {
   $$(".tab-content").forEach(el => el.style.display = "none");
   $(`tab-${tabName}`).style.display = "block";
   $$(".tab-btn").forEach(btn => btn.classList.remove("active"));
-  event.target.classList.add("active");
+  if (btnEl) btnEl.classList.add("active");
   if (tabName === "analytics") updateAnalytics();
 }
 
@@ -602,7 +609,9 @@ function createClass() {
   assessments = [];
   marks = {};
   renderClasses();
-  saveData();
+  renderLearners();
+  renderAssessments();
+  $("enterMarksCard").style.display = "none";
   $("className").value = "";
   $("classTeacher").value = "";
 }
@@ -634,12 +643,12 @@ function addLearner() {
   $("email").value = "";
   $("dateEnrolled").value = "";
   renderLearners();
-  saveData();
 }
 
 function renderLearners() {
   if (learners.length === 0) {
     $("learnersTableWrap").innerHTML = '<div class="empty-state">No learners added yet.</div>';
+    updateButtons();
     return;
   }
   const sorted = [...learners].sort((a, b) => {
@@ -674,6 +683,7 @@ function renderLearners() {
     updateButtons();
   });
   $$(".learner-checkbox").forEach(cb => cb.addEventListener("change", updateButtons));
+  updateButtons();
 }
 
 function updateButtons() {
@@ -703,7 +713,6 @@ function saveEdit() {
     l.email = $("editEmail").value;
     l.comment = $("editComment").value;
     renderLearners();
-    saveData();
     $("editModal").classList.remove("show");
   }
 }
@@ -712,7 +721,6 @@ function deleteLearner(id) {
   if (confirm("Delete this learner?")) {
     learners = learners.filter(l => l.id !== id);
     renderLearners();
-    saveData();
   }
 }
 
@@ -721,7 +729,6 @@ function deleteSelected() {
   if (confirm(`Delete ${ids.length} learner(s)?`)) {
     learners = learners.filter(l => !ids.includes(l.id));
     renderLearners();
-    saveData();
   }
 }
 
@@ -760,7 +767,6 @@ function createAssessment() {
   const assess = { id: Date.now(), title, type, total, weight, due, scale, createdAt: new Date().toISOString() };
   assessments.push(assess);
   renderAssessments();
-  saveData();
   $("assessmentTitle").value = "";
   $("totalMarks").value = "60";
   $("weight").value = "20";
@@ -774,13 +780,14 @@ function renderAssessments() {
   }
   const list = assessments.map(a => `
     <div style="padding:12px;border:1px solid #D6DBE0;border-radius:8px;margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <div>
           <strong>${a.title}</strong> (${a.type}) — ${a.total} marks | Weight: ${a.weight}%
           <br><small style="color:#6B7680;">Due: ${a.due || "No date"}</small>
         </div>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn small" onclick="openMarkEntry('${a.id}')">Enter Marks</button>
+          <button class="btn small secondary" onclick="generateAssessmentPdf('${a.id}')">Download PDF</button>
           <button class="btn small danger" onclick="deleteAssessment('${a.id}')">Delete</button>
         </div>
       </div>
@@ -797,11 +804,12 @@ function openMarkEntry(assessId) {
   $("enterMarksCard").style.display = "block";
   renderMarksLearnerSelect(assessId);
   renderMarksSummary(assessId);
+  $("enterMarksCard").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderMarksLearnerSelect(assessId) {
   const sel = $("marksLearner");
-  sel.innerHTML = '<option value="">-- Select a learner --</option>' + learners.map(l => 
+  sel.innerHTML = '<option value="">-- Select a learner --</option>' + learners.map(l =>
     `<option value="${l.id}">${l.name} (${l.id})</option>`
   ).join("");
 }
@@ -813,8 +821,8 @@ function renderMarksSummary(assessId) {
     ...l,
     mark: marks[`${assessId}-${l.id}`]
   }));
-  const markVals = learnersWithMarks.map(l => (l.mark / assess.total) * 100);
-  const avg = markVals.length ? (markVals.reduce((a, b) => a + b) / markVals.length).toFixed(1) : 0;
+  const markPcts = learnersWithMarks.map(l => (l.mark / assess.total) * 100);
+  const avg = markPcts.length ? (markPcts.reduce((a, b) => a + b, 0) / markPcts.length).toFixed(1) : 0;
   const html = learnersWithMarks.map(l => {
     const pct = ((l.mark / assess.total) * 100).toFixed(1);
     const band = bandFor(pct, assess.scale);
@@ -824,13 +832,17 @@ function renderMarksSummary(assessId) {
         <td>${l.mark} / ${assess.total}</td>
         <td>${pct}%</td>
         <td><span class="grade-pill" style="background:${band.color}">${band.label}</span></td>
-        <td><button class="action-btn danger small" onclick="deleteMark('${assessId}','${l.id}')">Delete</button></td>
+        <td><button class="action-btn danger" onclick="deleteMark('${assessId}','${l.id}')">Delete</button></td>
       </tr>
     `;
   }).join("");
-  $("marksSummaryWrap").innerHTML = learnersWithMarks.length > 0 ? 
+  $("marksSummaryWrap").innerHTML = learnersWithMarks.length > 0 ?
     `<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Marks</th><th>%</th><th>Grade</th><th></th></tr></thead><tbody>${html}</tbody></table></div><p style="color:#6B7680;margin-top:10px;">Average: ${avg}%</p>` :
     '<div class="empty-state">No marks entered yet.</div>';
+
+  const hasMarks = learnersWithMarks.length > 0;
+  $("downloadAssessmentPdfBtn").disabled = !hasMarks;
+  $("printAssessmentBtn").disabled = !hasMarks;
 }
 
 function saveMark() {
@@ -850,13 +862,11 @@ function saveMark() {
   $("markSuccess").style.display = "block";
   $("markSuccess").textContent = "Mark saved!";
   setTimeout(() => $("markSuccess").style.display = "none", 3000);
-  saveData();
 }
 
 function deleteMark(assessId, learnerId) {
   delete marks[`${assessId}-${learnerId}`];
   renderMarksSummary(assessId);
-  saveData();
 }
 
 function deleteAssessment(assessId) {
@@ -866,7 +876,9 @@ function deleteAssessment(assessId) {
       if (k.startsWith(assessId + "-")) delete marks[k];
     });
     renderAssessments();
-    saveData();
+    if ($("enterMarksCard").dataset.assessId == assessId) {
+      $("enterMarksCard").style.display = "none";
+    }
   }
 }
 
@@ -878,17 +890,145 @@ function bandFor(pct, scale) {
   return bands[bands.length - 1];
 }
 
+// ---- Assessment mark-list report / PDF ----
+function generateAssessmentPdf(assessId) {
+  const assess = assessments.find(a => a.id == assessId);
+  if (!assess) return alert("Assessment not found");
+
+  const rows = learners
+    .filter(l => marks[`${assessId}-${l.id}`] !== undefined)
+    .map(l => ({ ...l, mark: marks[`${assessId}-${l.id}`] }));
+
+  if (rows.length === 0) return alert("No marks have been entered for this assessment yet.");
+
+  const cls = classes.find(c => c.id === currentClassId);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 40;
+
+  // Header banner
+  doc.setFillColor(27, 42, 74);
+  doc.rect(0, 0, pageWidth, 70, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text("COMPREHENSIVE HIGH SCHOOL BAJJA – LUKAYA", pageWidth / 2, 28, { align: "center" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
+  doc.text("Assessment Marks & Grades Report", pageWidth / 2, 44, { align: "center" });
+  doc.setTextColor(201, 162, 39);
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(9);
+  doc.text('"Knowledge for Service"', pageWidth / 2, 58, { align: "center" });
+
+  // Meta block
+  doc.setTextColor(26, 26, 26);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(assess.title, margin, 92);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  const metaLine1 = `Class: ${cls ? cls.name : "—"}   |   Teacher: ${cls && cls.teacher ? cls.teacher : "—"}`;
+  const metaLine2 = `Type: ${assessmentTypeLabel(assess.type)}   |   Total marks: ${assess.total}   |   Weight: ${assess.weight}%   |   Grading scale: ${scaleLabel(assess.scale)}`;
+  const metaLine3 = `Due date: ${assess.due || "—"}   |   Report generated: ${new Date().toLocaleDateString()}`;
+  doc.text(metaLine1, margin, 107);
+  doc.text(metaLine2, margin, 120);
+  doc.text(metaLine3, margin, 133);
+
+  const body = rows.map((l, idx) => {
+    const pct = Math.max(0, Math.min(100, (l.mark / assess.total) * 100));
+    const band = bandFor(pct, assess.scale);
+    return [idx + 1, l.id, l.name, `${l.mark} / ${assess.total}`, pct.toFixed(1) + "%", (pct / 100 * 3).toFixed(1), band.label];
+  });
+
+  doc.autoTable({
+    startY: 148,
+    margin: { left: margin, right: margin },
+    head: [["#", "ID", "Learner Name", "Marks", "%", "/3", "Grade"]],
+    body: body,
+    styles: { fontSize: 9.5, cellPadding: 5 },
+    headStyles: { fillColor: [30, 86, 49], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [244, 246, 245] },
+    columnStyles: {
+      0: { cellWidth: 26 },
+      1: { cellWidth: 50 },
+      3: { cellWidth: 65 },
+      4: { cellWidth: 50 },
+      5: { cellWidth: 34 },
+      6: { cellWidth: 55 },
+    },
+    didDrawPage: () => {
+      const pageCount = doc.internal.getNumberOfPages();
+      doc.setFontSize(8.5);
+      doc.setTextColor(107, 118, 128);
+      doc.text(
+        `Comprehensive High School Bajja — Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${pageCount}`,
+        pageWidth / 2, doc.internal.pageSize.getHeight() - 20, { align: "center" }
+      );
+    },
+  });
+
+  // Summary
+  const pcts = rows.map(l => Math.max(0, Math.min(100, (l.mark / assess.total) * 100)));
+  const avg = (pcts.reduce((a, b) => a + b, 0) / pcts.length).toFixed(1);
+  const high = Math.max(...pcts).toFixed(1);
+  const low = Math.min(...pcts).toFixed(1);
+  const finalY = doc.lastAutoTable.finalY + 20;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(27, 42, 74);
+  doc.text(
+    `Learners assessed: ${rows.length} of ${learners.length}    Average: ${avg}%    Highest: ${high}%    Lowest: ${low}%`,
+    margin, finalY
+  );
+
+  const safeTitle = `${cls ? cls.name + "_" : ""}${assess.title}`.replace(/[^a-z0-9]+/gi, "_");
+  doc.save(`${safeTitle}_marks_report.pdf`);
+}
+
+function assessmentTypeLabel(type) {
+  return { cat: "Class Assessment (CAT)", quiz: "Quiz", midterm: "Midterm", final: "Final Exam" }[type] || type;
+}
+function scaleLabel(s) {
+  if (s === "cbc") return "CBC Descriptor";
+  if (s === "uce") return "UCE (D1–F9)";
+  return "Letter (A–F)";
+}
+
+// ---- Analytics ----
 function updateAnalytics() {
-  if (learners.length === 0) return;
-  const allMarks = [];
-  Object.values(marks).forEach(m => allMarks.push(m));
-  const allPcts = allMarks.map(m => (m / 100) * 100);
-  const avg = allPcts.length ? (allPcts.reduce((a, b) => a + b) / allPcts.length).toFixed(1) : 0;
-  const sorted = [...allPcts].sort((a, b) => a - b);
-  const median = sorted.length % 2 === 0 ? ((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2).toFixed(1) : sorted[Math.floor(sorted.length / 2)].toFixed(1);
-  const high = allPcts.length ? Math.max(...allPcts).toFixed(1) : 0;
-  const low = allPcts.length ? Math.min(...allPcts).toFixed(1) : 0;
-  const variance = allPcts.length ? (allPcts.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / allPcts.length).toFixed(2) : 0;
+  if (learners.length === 0 || assessments.length === 0) {
+    $("statCount").textContent = learners.length;
+    $("statAvg").textContent = "0%";
+    $("statMedian").textContent = "0%";
+    $("statHigh").textContent = "0%";
+    $("statLow").textContent = "0%";
+    $("statStdDev").textContent = "0";
+    $("generatePdfReport").disabled = learners.length === 0;
+    $("exportAllCsvBtn").disabled = learners.length === 0;
+    $("printReport").disabled = learners.length === 0;
+    return;
+  }
+
+  // Average percentage per learner across all assessments they have marks for
+  const learnerAverages = learners.map(l => {
+    const pcts = assessments
+      .filter(a => marks[`${a.id}-${l.id}`] !== undefined)
+      .map(a => (marks[`${a.id}-${l.id}`] / a.total) * 100);
+    return pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+  }).filter(v => v !== null);
+
+  const avg = learnerAverages.length ? (learnerAverages.reduce((a, b) => a + b, 0) / learnerAverages.length).toFixed(1) : 0;
+  const sorted = [...learnerAverages].sort((a, b) => a - b);
+  const median = sorted.length
+    ? (sorted.length % 2 === 0
+        ? ((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2).toFixed(1)
+        : sorted[Math.floor(sorted.length / 2)].toFixed(1))
+    : 0;
+  const high = sorted.length ? Math.max(...sorted).toFixed(1) : 0;
+  const low = sorted.length ? Math.min(...sorted).toFixed(1) : 0;
+  const variance = sorted.length ? sorted.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / sorted.length : 0;
   const stdDev = Math.sqrt(variance).toFixed(2);
 
   $("statCount").textContent = learners.length;
@@ -898,27 +1038,28 @@ function updateAnalytics() {
   $("statLow").textContent = low + "%";
   $("statStdDev").textContent = stdDev;
 
-  renderCharts();
+  $("generatePdfReport").disabled = learners.length === 0;
+  $("exportAllCsvBtn").disabled = learners.length === 0;
+  $("printReport").disabled = learners.length === 0;
+
+  renderCharts(learnerAverages);
 }
 
 function renderCharts() {
-  const allMarks = [];
-  Object.values(marks).forEach(m => allMarks.push(m));
-  const allPcts = allMarks.map(m => Math.min(100, (m / 100) * 100));
-
   const ctx1 = $("performanceChart").getContext("2d");
   if (window.perfChart) window.perfChart.destroy();
+  const chartLearners = learners.slice(0, 15);
   window.perfChart = new Chart(ctx1, {
     type: "bar",
     data: {
-      labels: learners.slice(0, 15).map(l => l.name.split(" ")[0]),
+      labels: chartLearners.map(l => l.name.split(" ")[0]),
       datasets: [{
-        label: "Performance %",
-        data: learners.slice(0, 15).map(l => {
-          const marks = Object.entries(marks)
-            .filter(([k]) => k.endsWith(`-${l.id}`))
-            .map(([, v]) => v);
-          return marks.length ? ((marks.reduce((a, b) => a + b) / marks.length / 100) * 100).toFixed(1) : 0;
+        label: "Average performance %",
+        data: chartLearners.map(l => {
+          const pcts = assessments
+            .filter(a => marks[`${a.id}-${l.id}`] !== undefined)
+            .map(a => (marks[`${a.id}-${l.id}`] / a.total) * 100);
+          return pcts.length ? (pcts.reduce((a, b) => a + b, 0) / pcts.length).toFixed(1) : 0;
         }),
         backgroundColor: GREEN,
         borderRadius: 8,
@@ -928,8 +1069,13 @@ function renderCharts() {
   });
 
   const gradeCounts = { "Exceptional": 0, "Adequate": 0, "Moderate": 0, "Basic": 0, "Below Basic": 0 };
-  allPcts.forEach(pct => {
-    const band = bandFor(pct, "cbc");
+  learners.forEach(l => {
+    const pcts = assessments
+      .filter(a => marks[`${a.id}-${l.id}`] !== undefined)
+      .map(a => (marks[`${a.id}-${l.id}`] / a.total) * 100);
+    if (!pcts.length) return;
+    const avgPct = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+    const band = bandFor(avgPct, "cbc");
     gradeCounts[band.label] = (gradeCounts[band.label] || 0) + 1;
   });
 
@@ -948,53 +1094,74 @@ function renderCharts() {
   });
 }
 
+// ---- Whole-class report (all learners, all assessments) ----
 function generatePdfReport() {
   if (learners.length === 0) return alert("No learners to report");
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const cls = classes.find(c => c.id === currentClassId);
-  const title = `${cls.name} - Learner Report`;
+  const title = `${cls ? cls.name : "Class"} - Learner Report`;
+  const pageWidth = doc.internal.pageSize.getWidth();
 
   doc.setFillColor(27, 42, 74);
-  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 40, "F");
+  doc.rect(0, 0, pageWidth, 40, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
-  doc.text("COMPREHENSIVE HIGH SCHOOL BAJJA", doc.internal.pageSize.getWidth() / 2, 15, { align: "center" });
+  doc.text("COMPREHENSIVE HIGH SCHOOL BAJJA", pageWidth / 2, 15, { align: "center" });
   doc.setFontSize(12);
-  doc.text(title, doc.internal.pageSize.getWidth() / 2, 28, { align: "center" });
+  doc.text(title, pageWidth / 2, 28, { align: "center" });
 
   doc.setTextColor(0, 0, 0);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(`Date: ${new Date().toLocaleDateString()}`, 15, 55);
-  doc.text(`Teacher: ${cls.teacher || "N/A"}`, 15, 62);
+  doc.text(`Teacher: ${cls && cls.teacher ? cls.teacher : "N/A"}`, 15, 62);
 
-  const body = learners.map((l, i) => [i + 1, l.id, l.name, l.email || "—", l.comment || "—"]);
-  doc.autoTable({
-    startY: 70,
-    head: [["#", "ID", "Name", "Email", "Comment"]],
-    body: body,
-    margin: { left: 15, right: 15 },
+  const body = learners.map((l, i) => {
+    const pcts = assessments
+      .filter(a => marks[`${a.id}-${l.id}`] !== undefined)
+      .map(a => (marks[`${a.id}-${l.id}`] / a.total) * 100);
+    const avgPct = pcts.length ? (pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+    const band = avgPct !== null ? bandFor(avgPct, "cbc") : null;
+    return [
+      i + 1, l.id, l.name,
+      pcts.length ? `${pcts.length}/${assessments.length}` : "0/" + assessments.length,
+      avgPct !== null ? avgPct.toFixed(1) + "%" : "—",
+      band ? band.label : "—",
+    ];
   });
 
-  doc.save(`${cls.name}_Report.pdf`);
+  doc.autoTable({
+    startY: 70,
+    head: [["#", "ID", "Name", "Assessments taken", "Average %", "Grade"]],
+    body: body,
+    margin: { left: 15, right: 15 },
+    headStyles: { fillColor: [30, 86, 49] },
+  });
+
+  doc.save(`${cls ? cls.name : "Class"}_Report.pdf`);
 }
 
 function exportAllCsv() {
   const cls = classes.find(c => c.id === currentClassId);
   let csv = "Class Report\n";
-  csv += `Class: ${cls.name}\nTeacher: ${cls.teacher}\nDate: ${new Date().toLocaleDateString()}\n\n`;
-  csv += "Student ID,Name,Email,Joined,Comment\n";
+  csv += `Class: ${cls ? cls.name : "—"}\nTeacher: ${cls ? cls.teacher : "—"}\nDate: ${new Date().toLocaleDateString()}\n\n`;
+  csv += "Student ID,Name,Email,Joined,Comment,Average %,Grade\n";
   learners.forEach(l => {
-    csv += `"${l.id}","${l.name}","${l.email}","${l.joined}","${(l.comment || "").replace(/"/g, '""')}"\n`;
+    const pcts = assessments
+      .filter(a => marks[`${a.id}-${l.id}`] !== undefined)
+      .map(a => (marks[`${a.id}-${l.id}`] / a.total) * 100);
+    const avgPct = pcts.length ? (pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+    const band = avgPct !== null ? bandFor(avgPct, "cbc") : null;
+    csv += `"${l.id}","${l.name}","${l.email}","${l.joined}","${(l.comment || "").replace(/"/g, '""')}","${avgPct !== null ? avgPct.toFixed(1) + "%" : ""}","${band ? band.label : ""}"\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${cls.name}_Report.csv`;
+  a.download = `${cls ? cls.name : "class"}_Report.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1042,7 +1209,7 @@ function importData(e) {
       renderClasses();
       renderLearners();
       renderAssessments();
-      saveData();
+      $("enterMarksCard").style.display = "none";
       $("dataMsg").style.display = "block";
       $("dataMsg").textContent = "✓ Data restored successfully!";
       setTimeout(() => $("dataMsg").style.display = "none", 3000);
@@ -1055,39 +1222,22 @@ function importData(e) {
 }
 
 function resetAll() {
-  if (confirm("Reset ALL data? This cannot be undone!")) {
+  if (confirm("Reset ALL data in this tab? This cannot be undone (export a backup first if unsure).")) {
     classes = [];
     currentClassId = null;
     learners = [];
     assessments = [];
     marks = {};
-    localStorage.clear();
-    location.reload();
+    renderClasses();
+    renderLearners();
+    renderAssessments();
+    $("enterMarksCard").style.display = "none";
+    switchTab("learners", document.querySelector('.tab-btn[data-tab="learners"]'));
   }
 }
 
 function printReport() {
   window.print();
-}
-
-function saveData() {
-  const data = { classes, currentClassId, learners, assessments, marks };
-  localStorage.setItem("lmData", JSON.stringify(data));
-}
-
-function loadData() {
-  const stored = localStorage.getItem("lmData");
-  if (stored) {
-    const data = JSON.parse(stored);
-    classes = data.classes || [];
-    currentClassId = data.currentClassId;
-    learners = data.learners || [];
-    assessments = data.assessments || [];
-    marks = data.marks || {};
-    renderClasses();
-    renderLearners();
-    renderAssessments();
-  }
 }
 
 init();
