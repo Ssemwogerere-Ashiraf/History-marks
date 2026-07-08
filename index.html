@@ -272,7 +272,18 @@
         <span class="badge" id="currentClassBadge">No class selected</span>
       </div>
     </div>
-    <div class="hint">Switch between classes to manage different streams or year groups. The class code determines the ID prefix (e.g., S1 → S101, S102…).</div>
+    <div class="grid-2" style="margin-top:12px;">
+      <div>
+        <label for="existingClassSelect">Switch to an existing class</label>
+        <select id="existingClassSelect">
+          <option value="">-- Select a class --</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn danger" id="deleteClassBtn" style="width:100%;justify-content:center;">Delete Current Class</button>
+      </div>
+    </div>
+    <div class="hint">Switch between classes to manage different streams or year groups. The class code determines the ID prefix (e.g., S1 → S101, S102…). If you type a class code that already exists, "Create/Switch Class" will switch to it instead of creating a duplicate.</div>
   </div>
 
   <!-- Tabs -->
@@ -416,6 +427,7 @@
           <button class="btn" id="saveMarkBtn" style="width:100%;justify-content:center;">Save Mark</button>
         </div>
       </div>
+      <div class="err" id="markErr"></div>
       <div class="success" id="markSuccess" style="display:none;"></div>
       <h3 style="margin-top:20px;">Marks Summary</h3>
       <div id="marksSummaryWrap"></div>
@@ -432,7 +444,7 @@
 
     <!-- Statistics -->
     <div class="card">
-      <h2>Class Statistics</h2>
+      <h2>Class Statistics <span style="font-weight:400;text-transform:none;color:var(--muted);">(overall weighted performance)</span></h2>
       <div class="summary-grid">
         <div class="summary-box">
           <div class="val" id="statCount">0</div>
@@ -539,6 +551,7 @@ const GREEN = "#1E5631";
 const GOLD = "#C9A227";
 const BLUE = "#0066CC";
 const RED = "#B91C1C";
+const SCHOOL_NAME = "Comprehensive High School Bajja — Lukaya";
 
 const BANDS = {
   cbc: [
@@ -568,20 +581,38 @@ const BANDS = {
   ],
 };
 
-// State
-let classes = [];
+function bandFor(pct, scale) {
+  const bands = BANDS[scale] || BANDS.cbc;
+  const p = Number(pct);
+  for (const b of bands) {
+    if (p >= b.min) return b;
+  }
+  return bands[bands.length - 1];
+}
+
+// ========== STATE ==========
+let classes = [];          // {id, name, teacher, code, createdAt}
 let currentClassId = null;
-let learners = [];
-let assessments = [];
-let marks = {};
-let classCounters = {}; // { classId: lastUsedNumber }
+let learners = [];         // {id, classId, name, email, joined}
+let assessments = [];      // {id, classId, title, type, total, weight, due, scale}
+let marks = {};            // { "assessId-learnerId": number }
+let classCounters = {};    // { classId: lastUsedNumber }
+
+let currentMarksAssessmentId = null;
+let editingLearnerId = null;
+let performanceChartInstance = null;
+let gradeDistChartInstance = null;
 
 const STORAGE_KEY = 'lmsData';
 
 // ========== LOCAL STORAGE ==========
 function saveToLocalStorage() {
   const data = { classes, currentClassId, learners, assessments, marks, classCounters };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn('Failed to save to localStorage', e);
+  }
 }
 
 function loadFromLocalStorage() {
@@ -590,7 +621,7 @@ function loadFromLocalStorage() {
   try {
     const data = JSON.parse(raw);
     classes = data.classes || [];
-    currentClassId = data.currentClassId;
+    currentClassId = data.currentClassId || null;
     learners = data.learners || [];
     assessments = data.assessments || [];
     marks = data.marks || {};
@@ -610,10 +641,18 @@ function getCurrentClass() {
   return classes.find(c => c.id === currentClassId);
 }
 
+function getClassLearners(classId = currentClassId) {
+  return learners.filter(l => l.classId === classId);
+}
+
+function getClassAssessments(classId = currentClassId) {
+  return assessments.filter(a => a.classId === classId);
+}
+
 function getNextLearnerId() {
   const cls = getCurrentClass();
   if (!cls) return null;
-  const code = cls.code; // e.g., "S1"
+  const code = cls.code;
   const last = classCounters[currentClassId] || 0;
   const next = last + 1;
   const padded = next.toString().padStart(2, '0');
@@ -622,41 +661,145 @@ function getNextLearnerId() {
 
 function updateNextIdPreview() {
   const nextId = getNextLearnerId();
-  const preview = nextId ? nextId : '(no class or no code)';
-  $('nextIdPreview').textContent = preview;
+  $('nextIdPreview').textContent = nextId ? nextId : '(no class or no code)';
 }
 
-// ========== RENDER FUNCTIONS ==========
+function clearErr(id) { $(id).textContent = ''; }
+function showErr(id, msg) { $(id).textContent = msg; }
+function flashSuccess(id, msg) {
+  const el = $(id);
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+// ========== CLASS MANAGEMENT ==========
+function populateExistingClassSelect() {
+  const sel = $('existingClassSelect');
+  sel.innerHTML = '<option value="">-- Select a class --</option>' +
+    classes.map(c => `<option value="${c.id}" ${c.id === currentClassId ? 'selected' : ''}>${c.name} [${c.code}]</option>`).join('');
+}
+
 function renderClasses() {
   const cls = getCurrentClass();
   if (cls) {
     $('currentClassBadge').textContent = `${cls.name} (${cls.teacher || 'No teacher'}) [${cls.code}]`;
+    $('className').value = cls.name;
+    $('classTeacher').value = cls.teacher || '';
+    $('classCode').value = cls.code;
   } else {
     $('currentClassBadge').textContent = 'No class selected';
   }
+  populateExistingClassSelect();
   updateNextIdPreview();
+  $('deleteClassBtn').disabled = !cls;
 }
 
+function createOrSwitchClass() {
+  const name = $('className').value.trim();
+  const teacher = $('classTeacher').value.trim();
+  const code = $('classCode').value.trim().toUpperCase();
+  if (!name || !code) {
+    alert('Please enter a class name and class code (e.g., S1)');
+    return;
+  }
+  const existing = classes.find(c => c.code === code);
+  if (existing) {
+    // Switch to existing class instead of creating a duplicate
+    currentClassId = existing.id;
+    existing.name = name;
+    existing.teacher = teacher;
+  } else {
+    const classObj = { id: Date.now(), name, teacher, code, createdAt: new Date().toISOString() };
+    classes.push(classObj);
+    currentClassId = classObj.id;
+    if (!classCounters[currentClassId]) classCounters[currentClassId] = 0;
+  }
+  saveToLocalStorage();
+  renderClasses();
+  renderLearners();
+  renderAssessments();
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+function switchToClassId(id) {
+  if (!id) return;
+  currentClassId = Number(id);
+  saveToLocalStorage();
+  renderClasses();
+  renderLearners();
+  renderAssessments();
+  hideEnterMarksCard();
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+function deleteCurrentClass() {
+  const cls = getCurrentClass();
+  if (!cls) return;
+  if (!confirm(`Delete class "${cls.name}" [${cls.code}]? This will remove all its learners, assessments, and marks. This cannot be undone.`)) return;
+  const classId = cls.id;
+  const assessIdsToRemove = assessments.filter(a => a.classId === classId).map(a => a.id);
+  assessments = assessments.filter(a => a.classId !== classId);
+  learners = learners.filter(l => l.classId !== classId);
+  Object.keys(marks).forEach(key => {
+    const assessId = key.split('-')[0];
+    if (assessIdsToRemove.includes(assessId) || assessIdsToRemove.map(String).includes(assessId)) {
+      delete marks[key];
+    }
+  });
+  delete classCounters[classId];
+  classes = classes.filter(c => c.id !== classId);
+  currentClassId = classes.length ? classes[0].id : null;
+  saveToLocalStorage();
+  renderClasses();
+  renderLearners();
+  renderAssessments();
+  hideEnterMarksCard();
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+// ========== LEARNER MANAGEMENT ==========
 function renderLearners() {
-  if (learners.length === 0) {
-    $('learnersTableWrap').innerHTML = '<div class="empty-state">No learners added yet.</div>';
+  const list = getClassLearners();
+  if (!currentClassId) {
+    $('learnersTableWrap').innerHTML = '<div class="empty-state">Create or select a class first.</div>';
     updateButtons();
     return;
   }
-  const sorted = [...learners].sort((a, b) => {
-    const by = $('sortBy').value;
-    if (by === 'name') return a.name.localeCompare(b.name);
-    if (by === 'id') return a.id.localeCompare(b.id);
-    if (by === 'joined') return new Date(a.joined) - new Date(b.joined);
+  applySearchAndSort(list);
+}
+
+function applySearchAndSort(baseList) {
+  const query = ($('searchBox').value || '').trim().toLowerCase();
+  const sortBy = $('sortBy').value;
+  let list = baseList.slice();
+  if (query) {
+    list = list.filter(l => l.name.toLowerCase().includes(query) || l.id.toLowerCase().includes(query));
+  }
+  list.sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'id') return a.id.localeCompare(b.id);
+    if (sortBy === 'joined') return new Date(a.joined || 0) - new Date(b.joined || 0);
     return 0;
   });
+  renderLearnersTable(list);
+}
 
-  const rows = sorted.map(l => `
+function renderLearnersTable(list) {
+  if (list.length === 0) {
+    $('learnersTableWrap').innerHTML = '<div class="empty-state">No learners found.</div>';
+    updateButtons();
+    return;
+  }
+  const rows = list.map(l => `
     <tr>
       <td><input type="checkbox" class="learner-checkbox" value="${l.id}"></td>
       <td>${l.id}</td>
-      <td>${l.name}</td>
-      <td>${l.email || '—'}</td>
+      <td>${escapeHtml(l.name)}</td>
+      <td>${l.email ? escapeHtml(l.email) : '—'}</td>
       <td>${l.joined || '—'}</td>
       <td><button class="action-btn" onclick="editLearner('${l.id}')">Edit</button> <button class="action-btn danger" onclick="deleteLearner('${l.id}')">Delete</button></td>
     </tr>
@@ -673,6 +816,12 @@ function renderLearners() {
   attachSelectAll();
   attachCheckboxListeners();
   updateButtons();
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 function attachSelectAll() {
@@ -689,54 +838,181 @@ function attachCheckboxListeners() {
   $$('.learner-checkbox').forEach(cb => cb.addEventListener('change', updateButtons));
 }
 
-function renderFilteredLearners(filtered) {
-  if (filtered.length === 0) {
-    $('learnersTableWrap').innerHTML = '<div class="empty-state">No results found.</div>';
-    return;
-  }
-  const rows = filtered.map(l => `
-    <tr>
-      <td><input type="checkbox" class="learner-checkbox" value="${l.id}"></td>
-      <td>${l.id}</td>
-      <td>${l.name}</td>
-      <td>${l.email || '—'}</td>
-      <td>${l.joined || '—'}</td>
-      <td><button class="action-btn" onclick="editLearner('${l.id}')">Edit</button> <button class="action-btn danger" onclick="deleteLearner('${l.id}')">Delete</button></td>
-    </tr>
-  `).join('');
-  $('learnersTableWrap').innerHTML = `
-    <div class="table-wrapper">
-      <table>
-        <thead><tr><th class="checkbox-cell"><input type="checkbox" id="selectAll"></th><th>ID</th><th>Name</th><th>Email</th><th>Joined</th><th>Actions</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  attachSelectAll();
-  attachCheckboxListeners();
-  updateButtons();
+function updateButtons() {
+  const checkedBoxes = $$('.learner-checkbox:checked');
+  $('deleteSelectedBtn').disabled = checkedBoxes.length === 0;
+  $('editSelectedBtn').disabled = checkedBoxes.length !== 1;
+  $('exportLearnersCsvBtn').disabled = getClassLearners().length === 0;
 }
 
-function updateButtons() {
-  const checked = $$('.learner-checkbox:checked').length > 0;
-  $('deleteSelectedBtn').disabled = !checked;
-  $('editSelectedBtn').disabled = checked !== 1;
-  $('exportLearnersCsvBtn').disabled = learners.length === 0;
+function addLearner() {
+  clearErr('formErr');
+  if (!currentClassId) {
+    showErr('formErr', 'Please create or select a class first.');
+    return;
+  }
+  const name = $('learnerName').value.trim();
+  const email = $('email').value.trim();
+  const joined = $('dateEnrolled').value;
+  if (!name) {
+    showErr('formErr', 'Please enter the learner\'s full name.');
+    return;
+  }
+  const id = getNextLearnerId();
+  const learner = { id, classId: currentClassId, name, email, joined: joined || new Date().toISOString().slice(0, 10) };
+  learners.push(learner);
+  classCounters[currentClassId] = (classCounters[currentClassId] || 0) + 1;
+  saveToLocalStorage();
+  $('learnerName').value = '';
+  $('email').value = '';
+  $('dateEnrolled').value = '';
+  updateNextIdPreview();
+  renderLearners();
+  renderAnalytics();
+  updateGlobalButtons();
+  flashSuccess('addSuccess', `Learner ${name} added with ID ${id}.`);
+}
+
+function editLearner(id) {
+  const learner = learners.find(l => l.id === id && l.classId === currentClassId);
+  if (!learner) return;
+  editingLearnerId = id;
+  $('editStudentId').value = learner.id;
+  $('editLearnerName').value = learner.name;
+  $('editEmail').value = learner.email || '';
+  $('editComment').value = learner.comment || '';
+  $('editModal').classList.add('show');
+}
+
+function editSelectedLearner() {
+  const checked = $$('.learner-checkbox:checked');
+  if (checked.length !== 1) return;
+  editLearner(checked[0].value);
+}
+
+function saveLearnerEdit() {
+  const learner = learners.find(l => l.id === editingLearnerId);
+  if (!learner) { closeEditModal(); return; }
+  const name = $('editLearnerName').value.trim();
+  if (!name) {
+    alert('Name cannot be empty.');
+    return;
+  }
+  learner.name = name;
+  learner.email = $('editEmail').value.trim();
+  learner.comment = $('editComment').value.trim();
+  saveToLocalStorage();
+  closeEditModal();
+  renderLearners();
+}
+
+function closeEditModal() {
+  $('editModal').classList.remove('show');
+  editingLearnerId = null;
+}
+
+function deleteLearner(id) {
+  const learner = learners.find(l => l.id === id);
+  if (!learner) return;
+  if (!confirm(`Delete learner ${learner.name} (${id})? Their marks in all assessments will also be removed.`)) return;
+  learners = learners.filter(l => l.id !== id);
+  Object.keys(marks).forEach(key => {
+    if (key.endsWith(`-${id}`)) delete marks[key];
+  });
+  saveToLocalStorage();
+  renderLearners();
+  renderAssessments();
+  if (currentMarksAssessmentId) renderMarksSummary(currentMarksAssessmentId);
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+function deleteSelectedLearners() {
+  const checked = Array.from($$('.learner-checkbox:checked')).map(cb => cb.value);
+  if (checked.length === 0) return;
+  if (!confirm(`Delete ${checked.length} selected learner(s)? Their marks will also be removed.`)) return;
+  learners = learners.filter(l => !checked.includes(l.id));
+  Object.keys(marks).forEach(key => {
+    const learnerId = key.split('-')[1];
+    if (checked.includes(learnerId)) delete marks[key];
+  });
+  saveToLocalStorage();
+  renderLearners();
+  renderAssessments();
+  if (currentMarksAssessmentId) renderMarksSummary(currentMarksAssessmentId);
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+function exportLearnersCsv() {
+  const list = getClassLearners();
+  if (list.length === 0) return;
+  const cls = getCurrentClass();
+  let csv = 'Student ID,Full Name,Email,Date Enrolled\n';
+  list.forEach(l => {
+    csv += `${l.id},"${(l.name || '').replace(/"/g, '""')}",${l.email || ''},${l.joined || ''}\n`;
+  });
+  downloadFile(csv, `${cls ? cls.code : 'class'}_learners.csv`, 'text/csv');
+}
+
+function downloadFile(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ========== ASSESSMENTS ==========
+function createAssessment() {
+  clearErr('assessmentErr');
+  if (!currentClassId) {
+    showErr('assessmentErr', 'Please create or select a class first.');
+    return;
+  }
+  const title = $('assessmentTitle').value.trim();
+  const type = $('assessmentType').value;
+  const total = Number($('totalMarks').value);
+  const weight = Number($('weight').value);
+  const due = $('dueDate').value;
+  const scale = $('gradeScale').value;
+
+  if (!title) { showErr('assessmentErr', 'Please enter an assessment title.'); return; }
+  if (!total || total <= 0) { showErr('assessmentErr', 'Total marks must be a positive number.'); return; }
+  if (weight < 0 || weight > 100) { showErr('assessmentErr', 'Weight must be between 0 and 100.'); return; }
+
+  const assessment = { id: String(Date.now()), classId: currentClassId, title, type, total, weight, due, scale };
+  assessments.push(assessment);
+  saveToLocalStorage();
+  $('assessmentTitle').value = '';
+  $('totalMarks').value = 60;
+  $('weight').value = 20;
+  $('dueDate').value = '';
+  renderAssessments();
+  renderAnalytics();
+  updateGlobalButtons();
 }
 
 function renderAssessments() {
-  if (assessments.length === 0) {
+  const list = getClassAssessments();
+  if (list.length === 0) {
     $('assessmentsListWrap').innerHTML = '<div class="empty-state">No assessments created yet.</div>';
     return;
   }
-  const list = assessments.map(a => {
-    const marksCount = Object.keys(marks).filter(k => k.startsWith(`${a.id}-`)).length;
-    const totalLearners = learners.length;
-    const progress = totalLearners ? `${marksCount}/${totalLearners}` : '0/0';
+  const classLearners = getClassLearners();
+  const html = list.map(a => {
+    const marksCount = classLearners.filter(l => marks[`${a.id}-${l.id}`] !== undefined).length;
+    const totalLearners = classLearners.length;
+    const progress = `${marksCount}/${totalLearners}`;
     return `
       <div style="padding:12px;border:1px solid #D6DBE0;border-radius:8px;margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
-            <strong>${a.title}</strong> (${a.type}) — ${a.total} marks | Weight: ${a.weight}%
+            <strong>${escapeHtml(a.title)}</strong> (${a.type}) — ${a.total} marks | Weight: ${a.weight}%
             <br><small style="color:#6B7680;">Due: ${a.due || 'No date'} | Marks entered: ${progress}</small>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -748,20 +1024,91 @@ function renderAssessments() {
       </div>
     `;
   }).join('');
-  $('assessmentsListWrap').innerHTML = list;
+  $('assessmentsListWrap').innerHTML = html;
 }
 
-function renderMarksLearnerSelect(assessId) {
+function deleteAssessment(id) {
+  const assess = assessments.find(a => a.id === id);
+  if (!assess) return;
+  if (!confirm(`Delete assessment "${assess.title}"? All marks for it will be removed.`)) return;
+  assessments = assessments.filter(a => a.id !== id);
+  Object.keys(marks).forEach(key => {
+    if (key.startsWith(`${id}-`)) delete marks[key];
+  });
+  saveToLocalStorage();
+  renderAssessments();
+  if (currentMarksAssessmentId === id) hideEnterMarksCard();
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+function openMarkEntry(assessId) {
+  const assess = assessments.find(a => a.id === assessId);
+  if (!assess) return;
+  currentMarksAssessmentId = assessId;
+  $('enterMarksCard').style.display = 'block';
+  $('marksAssessmentTitle').textContent = `${assess.title} (out of ${assess.total})`;
+  renderMarksLearnerSelect();
+  $('marksObtained').value = '';
+  clearErr('markErr');
+  renderMarksSummary(assessId);
+  $('enterMarksCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideEnterMarksCard() {
+  currentMarksAssessmentId = null;
+  $('enterMarksCard').style.display = 'none';
+}
+
+function renderMarksLearnerSelect() {
   const sel = $('marksLearner');
-  sel.innerHTML = '<option value="">-- Select a learner --</option>' + learners.map(l =>
-    `<option value="${l.id}">${l.name} (${l.id})</option>`
+  const list = getClassLearners();
+  sel.innerHTML = '<option value="">-- Select a learner --</option>' + list.map(l =>
+    `<option value="${l.id}">${escapeHtml(l.name)} (${l.id})</option>`
   ).join('');
 }
 
-function renderMarksSummary(assessId) {
-  const assess = assessments.find(a => a.id == assessId);
+function saveMark() {
+  clearErr('markErr');
+  const assessId = currentMarksAssessmentId;
+  const assess = assessments.find(a => a.id === assessId);
   if (!assess) return;
-  const learnersWithMarks = learners.filter(l => marks[`${assessId}-${l.id}`] !== undefined).map(l => ({
+  const learnerId = $('marksLearner').value;
+  const markVal = Number($('marksObtained').value);
+  if (!learnerId) { showErr('markErr', 'Please select a learner.'); return; }
+  if ($('marksObtained').value === '' || isNaN(markVal) || markVal < 0) {
+    showErr('markErr', 'Please enter a valid mark.');
+    return;
+  }
+  if (markVal > assess.total) {
+    showErr('markErr', `Mark cannot exceed the total of ${assess.total}.`);
+    return;
+  }
+  marks[`${assessId}-${learnerId}`] = markVal;
+  saveToLocalStorage();
+  $('marksObtained').value = '';
+  $('marksLearner').value = '';
+  renderMarksSummary(assessId);
+  renderAssessments();
+  renderAnalytics();
+  updateGlobalButtons();
+  flashSuccess('markSuccess', 'Mark saved.');
+}
+
+function deleteMark(assessId, learnerId) {
+  delete marks[`${assessId}-${learnerId}`];
+  saveToLocalStorage();
+  renderMarksSummary(assessId);
+  renderAssessments();
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+function renderMarksSummary(assessId) {
+  const assess = assessments.find(a => a.id === assessId);
+  if (!assess) return;
+  const classLearners = getClassLearners();
+  const learnersWithMarks = classLearners.filter(l => marks[`${assessId}-${l.id}`] !== undefined).map(l => ({
     ...l,
     mark: marks[`${assessId}-${l.id}`]
   }));
@@ -772,7 +1119,7 @@ function renderMarksSummary(assessId) {
     const band = bandFor(pct, assess.scale);
     return `
       <tr>
-        <td>${l.name}</td>
+        <td>${escapeHtml(l.name)}</td>
         <td>${l.mark} / ${assess.total}</td>
         <td>${pct}%</td>
         <td><span class="grade-pill" style="background:${band.color}">${band.label}</span></td>
@@ -789,73 +1136,398 @@ function renderMarksSummary(assessId) {
   $('printAssessmentBtn').disabled = !hasMarks;
 }
 
-// ========== CLASS MANAGEMENT ==========
-function createClass() {
-  const name = $('className').value.trim();
-  const teacher = $('classTeacher').value.trim();
-  const code = $('classCode').value.trim().toUpperCase();
-  if (!name || !code) {
-    alert('Please enter class name and class code (e.g., S1)');
-    return;
-  }
-  // Check for duplicate code
-  if (classes.some(c => c.code === code)) {
-    alert(`A class with code "${code}" already exists. Please use a unique code.`);
-    return;
-  }
-  const classObj = { id: Date.now(), name, teacher, code, createdAt: new Date().toISOString() };
-  classes.push(classObj);
-  currentClassId = classObj.id;
-  // Initialize counter for this class if not exists
-  if (!classCounters[currentClassId]) classCounters[currentClassId] = 0;
-  // Reset learners and assessments for new class? No, we keep them separate? Actually, we want each class to have its own set of learners and assessments.
-  // But currently we have global learners/assessments. To keep things simple, we'll maintain separate lists per class? That would require major changes.
-  // Instead, we'll keep all data in one pool and filter by class? The current design doesn't have a classId on learners/assessments.
-  // To support multiple classes, we need to add classId to each learner and assessment. However, for the scope of this task, we'll assume one class at a time
-  // and when switching class, we clear the current data? That would lose data for other classes.
-  // Better: we store each class's data separately. But that's a big refactor. Given the user's request, they seem to want a single class at a time,
-  // but with persistence. They can switch classes and each class has its own data. We'll store data per class by using the classId as a key.
-  // Let's restructure: we'll store learners, assessments, marks per class. We'll keep a global object: classData = { classId: { learners, assessments, marks } }.
-  // However, that would require a lot of changes. Given the assignment, maybe we assume they only work with one class at a time, but they want to switch classes
-  // and have separate data for each. I'll implement a simpler approach: when switching class, we save current class data into a map, and load the new class data.
-  // But the current code doesn't have that map. Let's add it now.
-  // Actually, the user wants to create multiple classes and manage them. So we need to store data per class.
-  // I'll refactor: we'll have a structure: classData[classId] = { learners, assessments, marks, classCounters }.
-  // But that would be a lot of changes to the existing code. Since the instruction says "enforce saving locally", we can store the entire state as before,
-  // but we should allow switching classes and loading the appropriate data. However, the current code doesn't store classId with learners/assessments.
-  // To keep it simple, we'll assume that the user only works with one class at a time, and switching classes clears the current data and loads the saved data for that class.
-  // But we need to save current data before switching. So we'll implement a switchClass function that saves current data to a per-class storage, then loads the new class.
-  // We'll use localStorage to store a map of classId -> data.
-  // Let's do this: we'll have a global object `allClassData = {}` that maps classId to { learners, assessments, marks, classCounters }.
-  // We'll save this entire object to localStorage under a different key.
-  // Actually, we already have `classes` array. For each class, we can store its data separately.
-  // I'll implement a simpler approach: we'll keep the current in-memory state (learners, assessments, marks, classCounters) for the current class.
-  // When switching class, we save the current state into a map `classStateMap[classId] = { learners, assessments, marks, classCounters }`, and load the new class's state.
-  // That map will be stored in localStorage as well.
-  // I'll add a global `classStateMap` object.
-  // Let's modify init to load classStateMap from localStorage.
-  // Then when switching class, we save current state, then load new.
-  // That's a major change, but I'll implement it.
-
-  // To keep this answer manageable, I'll simplify: I'll assume only one class is used at a time, and switching classes essentially resets the data (but you can backup/restore).
-  // However, the user explicitly said "enforce saving locally in that when refresh page is done, data isn't lost" – that's already covered by localStorage.
-  // They also want ID generation based on class. We can generate ID using the class code, which is stored per class. That is already implemented.
-  // For multiple classes, we can keep all learners/assessments in one pool and filter by classId? But we don't have classId on learners.
-  // Given the time, I'll implement a per-class storage using a global object.
-  // I'll restructure: we'll have `allData` = {} where keys are classIds, values are { learners, assessments, marks, classCounters }.
-  // The current state will be loaded from `allData[currentClassId]` or empty.
-  // On any change, we update `allData[currentClassId]` and save the whole `allData` to localStorage.
-  // This way, each class has its own data.
-  // I'll rewrite the code with this structure.
-  // This is a big change, but necessary for multi-class support.
-  // I'll produce a new version with this.
-
-  // Given the complexity, I'll implement it now.
-  // I'll modify the state variables to be per-class, and use `allData` map.
-  // I'll update all functions to read/write from `allData[currentClassId]`.
-  // I'll also update the UI to show class switching.
-  // I'll write the final code.
+// ========== ANALYTICS ==========
+function computeOverallScores() {
+  // Weighted overall % per learner, across assessments where they have a mark.
+  const classLearners = getClassLearners();
+  const classAssessments = getClassAssessments();
+  const results = [];
+  classLearners.forEach(l => {
+    let weightedSum = 0;
+    let weightTotal = 0;
+    classAssessments.forEach(a => {
+      const m = marks[`${a.id}-${l.id}`];
+      if (m !== undefined) {
+        const pct = (m / a.total) * 100;
+        weightedSum += pct * a.weight;
+        weightTotal += a.weight;
+      }
+    });
+    if (weightTotal > 0) {
+      results.push({ id: l.id, name: l.name, overall: weightedSum / weightTotal });
+    }
+  });
+  return results;
 }
+
+function renderAnalytics() {
+  const scores = computeOverallScores();
+  const values = scores.map(s => s.overall);
+  const count = values.length;
+  const avg = count ? values.reduce((a, b) => a + b, 0) / count : 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const median = count ? (count % 2 === 1 ? sorted[(count - 1) / 2] : (sorted[count / 2 - 1] + sorted[count / 2]) / 2) : 0;
+  const high = count ? Math.max(...values) : 0;
+  const low = count ? Math.min(...values) : 0;
+  const variance = count ? values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / count : 0;
+  const stdDev = Math.sqrt(variance);
+
+  $('statCount').textContent = getClassLearners().length;
+  $('statAvg').textContent = `${avg.toFixed(1)}%`;
+  $('statMedian').textContent = `${median.toFixed(1)}%`;
+  $('statHigh').textContent = `${high.toFixed(1)}%`;
+  $('statLow').textContent = `${low.toFixed(1)}%`;
+  $('statStdDev').textContent = stdDev.toFixed(1);
+
+  renderPerformanceChart(scores);
+  renderGradeDistributionChart(scores);
+
+  const hasData = scores.length > 0;
+  $('generatePdfReport').disabled = !hasData;
+  $('exportAllCsvBtn').disabled = getClassLearners().length === 0;
+  $('printReport').disabled = !hasData;
+}
+
+function renderPerformanceChart(scores) {
+  const ctx = document.getElementById('performanceChart').getContext('2d');
+  const labels = scores.map(s => s.name);
+  const data = scores.map(s => Number(s.overall.toFixed(1)));
+  if (performanceChartInstance) performanceChartInstance.destroy();
+  performanceChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Overall %',
+        data,
+        backgroundColor: NAVY,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, max: 100 } }
+    }
+  });
+}
+
+function renderGradeDistributionChart(scores) {
+  const ctx = document.getElementById('gradeDistributionChart').getContext('2d');
+  const bands = BANDS.cbc;
+  const counts = bands.map(b => 0);
+  scores.forEach(s => {
+    const band = bandFor(s.overall, 'cbc');
+    const idx = bands.findIndex(b => b.label === band.label);
+    if (idx >= 0) counts[idx]++;
+  });
+  if (gradeDistChartInstance) gradeDistChartInstance.destroy();
+  gradeDistChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: bands.map(b => b.label),
+      datasets: [{
+        data: counts,
+        backgroundColor: bands.map(b => b.color)
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+}
+
+function exportAllCsv() {
+  const classLearners = getClassLearners();
+  const classAssessments = getClassAssessments();
+  if (classLearners.length === 0) return;
+  const cls = getCurrentClass();
+  let header = ['Student ID', 'Full Name', ...classAssessments.map(a => `${a.title} (%)`), 'Overall (%)'];
+  let csv = header.join(',') + '\n';
+  const scores = computeOverallScores();
+  classLearners.forEach(l => {
+    const row = [l.id, `"${l.name.replace(/"/g, '""')}"`];
+    classAssessments.forEach(a => {
+      const m = marks[`${a.id}-${l.id}`];
+      row.push(m !== undefined ? ((m / a.total) * 100).toFixed(1) : '');
+    });
+    const overallEntry = scores.find(s => s.id === l.id);
+    row.push(overallEntry ? overallEntry.overall.toFixed(1) : '');
+    csv += row.join(',') + '\n';
+  });
+  downloadFile(csv, `${cls ? cls.code : 'class'}_full_report.csv`, 'text/csv');
+}
+
+// ========== PDF GENERATION ==========
+function pdfHeader(doc, title, subtitle) {
+  doc.setFillColor(27, 42, 74);
+  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.text(SCHOOL_NAME, 14, 12);
+  doc.setFontSize(11);
+  doc.text(title, 14, 20);
+  if (subtitle) {
+    doc.setFontSize(9);
+    doc.text(subtitle, 14, 26);
+  }
+  doc.setTextColor(0, 0, 0);
+}
+
+function pdfFooter(doc, className) {
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const h = doc.internal.pageSize.getHeight();
+    const w = doc.internal.pageSize.getWidth();
+    doc.setFontSize(8);
+    doc.setTextColor(107, 118, 128);
+    doc.text(`${SCHOOL_NAME} | ${className || ''}`, 14, h - 8);
+    doc.text(`Page ${i} of ${pageCount}`, w - 30, h - 8);
+    doc.setTextColor(0, 0, 0);
+  }
+}
+
+function generateAssessmentPdf(assessId) {
+  const assess = assessments.find(a => a.id === assessId);
+  if (!assess) return;
+  const cls = getCurrentClass();
+  const classLearners = getClassLearners();
+  const rows = classLearners
+    .filter(l => marks[`${assessId}-${l.id}`] !== undefined)
+    .map(l => {
+      const m = marks[`${assessId}-${l.id}`];
+      const pct = ((m / assess.total) * 100).toFixed(1);
+      const band = bandFor(pct, assess.scale);
+      return [l.id, l.name, `${m} / ${assess.total}`, `${pct}%`, band.label];
+    });
+
+  if (rows.length === 0) {
+    alert('No marks have been entered for this assessment yet.');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  pdfHeader(doc, `${assess.title} — Results`, cls ? `${cls.name} [${cls.code}] | Type: ${assess.type} | Total: ${assess.total} | Weight: ${assess.weight}%` : '');
+  doc.autoTable({
+    startY: 34,
+    head: [['ID', 'Name', 'Score', '%', 'Grade']],
+    body: rows,
+    headStyles: { fillColor: [27, 42, 74] },
+    alternateRowStyles: { fillColor: [247, 249, 248] },
+    styles: { fontSize: 9 }
+  });
+  pdfFooter(doc, cls ? cls.name : '');
+  doc.save(`${cls ? cls.code : 'class'}_${assess.title.replace(/\s+/g, '_')}_results.pdf`);
+}
+
+function downloadCurrentAssessmentPdf() {
+  if (currentMarksAssessmentId) generateAssessmentPdf(currentMarksAssessmentId);
+}
+
+function printCurrentAssessment() {
+  if (!currentMarksAssessmentId) return;
+  const assess = assessments.find(a => a.id === currentMarksAssessmentId);
+  if (!assess) return;
+  const content = $('marksSummaryWrap').innerHTML;
+  openPrintWindow(`${assess.title} — Results`, content);
+}
+
+function printAnalyticsReport() {
+  const cls = getCurrentClass();
+  const scores = computeOverallScores();
+  const rows = scores.map(s => `<tr><td>${escapeHtml(s.name)}</td><td>${s.overall.toFixed(1)}%</td><td>${bandFor(s.overall, 'cbc').label}</td></tr>`).join('');
+  const content = `
+    <p>Learners: ${getClassLearners().length}</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;">
+      <thead><tr><th>Name</th><th>Overall %</th><th>Grade</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  openPrintWindow(`${cls ? cls.name : 'Class'} — Analytics Report`, content);
+}
+
+function openPrintWindow(title, innerHtml) {
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html><head><title>${title}</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:20px;color:#1A1A1A;}
+      h1{color:#1B2A4A;font-size:18px;}
+      table{width:100%;border-collapse:collapse;font-size:13px;}
+      th,td{border:1px solid #ddd;padding:8px;text-align:left;}
+      th{background:#1B2A4A;color:white;}
+    </style>
+    </head><body><h1>${title}</h1>${innerHtml}</body></html>
+  `);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
+
+function generateFullPdfReport() {
+  const cls = getCurrentClass();
+  const classLearners = getClassLearners();
+  const classAssessments = getClassAssessments();
+  const scores = computeOverallScores();
+  if (scores.length === 0) {
+    alert('No marks recorded yet for this class.');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  pdfHeader(doc, 'Class Performance Report', cls ? `${cls.name} [${cls.code}] | Teacher: ${cls.teacher || '—'}` : '');
+
+  const values = scores.map(s => s.overall);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const sorted = [...values].sort((a, b) => a - b);
+  const median = values.length % 2 === 1 ? sorted[(values.length - 1) / 2] : (sorted[values.length / 2 - 1] + sorted[values.length / 2]) / 2;
+  const high = Math.max(...values);
+  const low = Math.min(...values);
+
+  doc.setFontSize(10);
+  doc.text(`Learners: ${classLearners.length}   Average: ${avg.toFixed(1)}%   Median: ${median.toFixed(1)}%   Highest: ${high.toFixed(1)}%   Lowest: ${low.toFixed(1)}%`, 14, 38);
+
+  const rows = classLearners.map(l => {
+    const entry = scores.find(s => s.id === l.id);
+    const perAssess = classAssessments.map(a => {
+      const m = marks[`${a.id}-${l.id}`];
+      return m !== undefined ? `${((m / a.total) * 100).toFixed(0)}%` : '—';
+    });
+    const overall = entry ? `${entry.overall.toFixed(1)}%` : '—';
+    const grade = entry ? bandFor(entry.overall, 'cbc').label : '—';
+    return [l.id, l.name, ...perAssess, overall, grade];
+  });
+
+  doc.autoTable({
+    startY: 44,
+    head: [['ID', 'Name', ...classAssessments.map(a => a.title), 'Overall', 'Grade']],
+    body: rows,
+    headStyles: { fillColor: [27, 42, 74] },
+    alternateRowStyles: { fillColor: [247, 249, 248] },
+    styles: { fontSize: 8 }
+  });
+  pdfFooter(doc, cls ? cls.name : '');
+  doc.save(`${cls ? cls.code : 'class'}_performance_report.pdf`);
+}
+
+// ========== DATA MANAGEMENT ==========
+function backupData() {
+  const data = { classes, currentClassId, learners, assessments, marks, classCounters };
+  downloadFile(JSON.stringify(data, null, 2), `lms_backup_${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+  flashSuccess('dataMsg', 'Backup downloaded.');
+}
+
+function restoreData(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.classes || !data.learners || !data.assessments) throw new Error('Invalid backup file');
+      classes = data.classes || [];
+      currentClassId = data.currentClassId || (classes.length ? classes[0].id : null);
+      learners = data.learners || [];
+      assessments = data.assessments || [];
+      marks = data.marks || {};
+      classCounters = data.classCounters || {};
+      saveToLocalStorage();
+      renderClasses();
+      renderLearners();
+      renderAssessments();
+      hideEnterMarksCard();
+      renderAnalytics();
+      updateGlobalButtons();
+      flashSuccess('dataMsg', 'Data restored successfully.');
+    } catch (err) {
+      alert('Could not read this backup file. Please make sure it is a valid LMS backup JSON.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function resetAllData() {
+  if (!confirm('This will permanently erase ALL classes, learners, assessments, and marks. Continue?')) return;
+  if (!confirm('Are you absolutely sure? This cannot be undone.')) return;
+  classes = [];
+  currentClassId = null;
+  learners = [];
+  assessments = [];
+  marks = {};
+  classCounters = {};
+  localStorage.removeItem(STORAGE_KEY);
+  renderClasses();
+  renderLearners();
+  renderAssessments();
+  hideEnterMarksCard();
+  renderAnalytics();
+  updateGlobalButtons();
+  flashSuccess('dataMsg', 'All data has been reset.');
+}
+
+function updateGlobalButtons() {
+  updateButtons();
+}
+
+// ========== TABS ==========
+function switchTab(tabName) {
+  $$('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+  $$('.tab-content').forEach(tc => tc.style.display = 'none');
+  $(`tab-${tabName}`).style.display = 'block';
+  if (tabName === 'analytics') renderAnalytics();
+}
+
+// ========== INIT ==========
+function attachEventListeners() {
+  $('createClassBtn').addEventListener('click', createOrSwitchClass);
+  $('existingClassSelect').addEventListener('change', (e) => switchToClassId(e.target.value));
+  $('deleteClassBtn').addEventListener('click', deleteCurrentClass);
+
+  $('addLearnerBtn').addEventListener('click', addLearner);
+  $('searchBox').addEventListener('input', () => renderLearners());
+  $('sortBy').addEventListener('change', () => renderLearners());
+  $('editSelectedBtn').addEventListener('click', editSelectedLearner);
+  $('deleteSelectedBtn').addEventListener('click', deleteSelectedLearners);
+  $('exportLearnersCsvBtn').addEventListener('click', exportLearnersCsv);
+
+  $('closeEditModal').addEventListener('click', closeEditModal);
+  $('saveEditBtn').addEventListener('click', saveLearnerEdit);
+  $('editModal').addEventListener('click', (e) => { if (e.target.id === 'editModal') closeEditModal(); });
+
+  $('createAssessmentBtn').addEventListener('click', createAssessment);
+  $('saveMarkBtn').addEventListener('click', saveMark);
+  $('downloadAssessmentPdfBtn').addEventListener('click', downloadCurrentAssessmentPdf);
+  $('printAssessmentBtn').addEventListener('click', printCurrentAssessment);
+
+  $('generatePdfReport').addEventListener('click', generateFullPdfReport);
+  $('exportAllCsvBtn').addEventListener('click', exportAllCsv);
+  $('printReport').addEventListener('click', printAnalyticsReport);
+
+  $('backupBtn').addEventListener('click', backupData);
+  $('restoreBtn').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => {
+    if (e.target.files.length > 0) restoreData(e.target.files[0]);
+    e.target.value = '';
+  });
+  $('resetBtn').addEventListener('click', resetAllData);
+
+  $$('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+}
+
+function init() {
+  loadFromLocalStorage();
+  attachEventListeners();
+  renderClasses();
+  renderLearners();
+  renderAssessments();
+  renderAnalytics();
+  updateGlobalButtons();
+}
+
+document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
-  </html>
+</html>
